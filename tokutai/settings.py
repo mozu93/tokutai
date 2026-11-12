@@ -26,6 +26,7 @@ class Settings:
     view_filter: str = "未完了のみ"  # 一覧の絞り込み（再起動後も覚える）
     sort_column: str = ""  # 並び替えの列名。空は標準の順
     sort_ascending: bool = True
+    column_order: list[str] = field(default_factory=list)  # 列の並び順（空は標準）
 
     def managers(self) -> list[str]:
         return [m.strip() for m in self.manager_emails if m and m.strip()]

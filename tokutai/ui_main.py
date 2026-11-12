@@ -23,7 +23,8 @@ from .ui_settings import SettingsDialog
 
 log = logging.getLogger(__name__)
 
-COLUMNS = ["状態", "警告", "案件番号", "会社名", "案件作成日", "不備連絡日", "書類到着日", "処理済日", "経過日数", "備考"]
+COLUMNS = ["状態", "警告", "経過日数", "案件番号", "会社名", "案件作成日", "不備連絡日", "書類到着日", "処理済日", "備考"]
+COL_STATUS, COL_NO = COLUMNS.index("状態"), COLUMNS.index("案件番号")
 RED_BG = QColor(255, 205, 205)
 GRAY_FG = QColor(130, 130, 130)
 
@@ -193,9 +194,12 @@ class MainWindow(QMainWindow):
         hh.setSectionsClickable(True)
         hh.sectionClicked.connect(self._header_clicked)
         self._show_sort_indicator()
-        self.table.setColumnWidth(3, 240)
-        self.table.setColumnWidth(0, 130)
-        self.table.setColumnWidth(2, 160)
+        self.table.setColumnWidth(COLUMNS.index("会社名"), 240)
+        self.table.setColumnWidth(COL_STATUS, 130)
+        self.table.setColumnWidth(COL_NO, 160)
+        self._restore_column_order()
+        hh.setSectionsMovable(True)  # 見出しのドラッグで列の順番を変えられる
+        hh.sectionMoved.connect(self._save_column_order)
         self.table.cellDoubleClicked.connect(lambda *_: self.edit_dates())
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._table_menu)
@@ -282,7 +286,7 @@ class MainWindow(QMainWindow):
         if r < 0:
             QMessageBox.information(self, "案件の選択", "一覧で案件を選んでください。")
             return None
-        return self.table.item(r, 2).text()
+        return self.table.item(r, COL_NO).text()
 
     def reload(self) -> None:
         today = date.today()
@@ -295,10 +299,12 @@ class MainWindow(QMainWindow):
         for i, c in enumerate(rows):
             a = alerts.get(c.case_no)
             ed = service.elapsed_days(c, today)
-            vals = [c.status, a.kind if a else "", c.case_no, c.company, _fmt(c.received_date),
-                    _fmt(c.defect_date), _fmt(c.docs_date), _fmt(c.done_date), "" if ed is None else str(ed), c.note]
-            for j, val in enumerate(vals):
-                it = QTableWidgetItem(val)
+            vals = {"状態": c.status, "警告": a.kind if a else "", "経過日数": "" if ed is None else str(ed),
+                    "案件番号": c.case_no, "会社名": c.company, "案件作成日": _fmt(c.received_date),
+                    "不備連絡日": _fmt(c.defect_date), "書類到着日": _fmt(c.docs_date),
+                    "処理済日": _fmt(c.done_date), "備考": c.note}
+            for j, name in enumerate(COLUMNS):
+                it = QTableWidgetItem(vals[name])
                 if a:
                     it.setBackground(QBrush(RED_BG))
                     it.setForeground(QBrush(QColor(0, 0, 0)))
@@ -321,6 +327,20 @@ class MainWindow(QMainWindow):
         self.st.view_filter = self.filter.currentText()
         settings_mod.save(self.st)
         self.reload()
+
+    def _restore_column_order(self) -> None:
+        """前回の列の並び順を戻す。保存された内容が今の列と合わないときは無視する。"""
+        order = self.st.column_order
+        if sorted(order) != sorted(COLUMNS):
+            return
+        hh = self.table.horizontalHeader()
+        for visual, name in enumerate(order):
+            hh.moveSection(hh.visualIndex(COLUMNS.index(name)), visual)
+
+    def _save_column_order(self, *_args) -> None:
+        hh = self.table.horizontalHeader()
+        self.st.column_order = [COLUMNS[hh.logicalIndex(v)] for v in range(len(COLUMNS))]
+        settings_mod.save(self.st)
 
     def _header_clicked(self, col: int) -> None:
         """見出しのクリックで、昇順 → 降順 → 標準の順に切り替える。"""
@@ -347,7 +367,7 @@ class MainWindow(QMainWindow):
 
     def _selected_status(self) -> str | None:
         r = self.table.currentRow()
-        it = self.table.item(r, 0) if r >= 0 else None
+        it = self.table.item(r, COL_STATUS) if r >= 0 else None
         return it.text() if it else None
 
     def _update_buttons(self) -> None:
@@ -479,7 +499,7 @@ class MainWindow(QMainWindow):
         item = self.table.itemAt(pos)
         if item is None:
             return
-        self.table.setCurrentCell(item.row(), 0)
+        self.table.setCurrentCell(item.row(), COL_STATUS)
         menu = QMenu(self)
         for b in (self.btn_arrived, self.btn_defect, self.btn_done):
             menu.addAction(b.text(), b.click).setEnabled(b.isEnabled())
