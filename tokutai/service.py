@@ -395,6 +395,10 @@ def run_sync(st: Settings, client, norm: CompanyNormalizer, interactive: bool = 
     """メール取り込み → 警告判定 → 管理職への通知。失敗は errors に集めて続行する。"""
     res = SyncResult()
     today = today or date.today()
+    try:  # 取り込みや古い案件の削除より前に、その日の最初のバックアップを取る
+        db.daily_backup(today=today)
+    except Exception:  # noqa: BLE001
+        log.exception("バックアップに失敗")
     with db.session() as s:
         try:
             import_mails(s, st, client, norm, res, interactive)

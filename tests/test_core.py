@@ -256,3 +256,28 @@ def test_undo_skips_changed_and_removes_created(tmp_path):
     for i in range(5):
         stack.push(str(i), {"X": ({}, {"a": i})})
     assert len(stack) == 2
+
+
+def test_daily_backup(tmp_path, monkeypatch):
+    import sqlite3
+    monkeypatch.setenv("TOKUTAI_HOME", str(tmp_path))
+    db.init(f"sqlite:///{tmp_path / 'live.db'}")
+    with db.session() as s:
+        s.add(db.Case(case_no="B1", company="バックアップ確認"))
+        s.commit()
+    assert db.daily_backup(keep=2, today=date(2026, 11, 10)) is True
+    p = tmp_path / "backup" / "tokutai_20261110.db"
+    assert [r[0] for r in sqlite3.connect(p).execute("select case_no from cases")] == ["B1"]
+    assert db.daily_backup(keep=2, today=date(2026, 11, 10)) is False  # 同じ日は作り直さない
+    db.daily_backup(keep=2, today=date(2026, 11, 11))
+    db.daily_backup(keep=2, today=date(2026, 11, 12))
+    names = sorted(x.name for x in (tmp_path / "backup").glob("*"))
+    assert names == ["tokutai_20261111.db", "tokutai_20261112.db"]  # 古いものから消える
+
+
+def test_run_sync_makes_backup(tmp_path, monkeypatch, norm):
+    monkeypatch.setenv("TOKUTAI_HOME", str(tmp_path))
+    db.init(f"sqlite:///{tmp_path / 'live2.db'}")
+    st = Settings(folder_name="x")
+    service.run_sync(st, FakeClient([]), norm, today=date(2026, 11, 12))
+    assert (tmp_path / "backup" / "tokutai_20261112.db").exists()

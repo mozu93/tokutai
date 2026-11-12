@@ -1,8 +1,10 @@
 """SQLite（SQLAlchemy）のモデルとセッション。"""
 from __future__ import annotations
 
-import shutil
+import sqlite3
+from contextlib import closing
 from datetime import date
+from pathlib import Path
 
 from sqlalchemy import Date, Integer, String, Text, UniqueConstraint, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
@@ -101,14 +103,23 @@ def set_meta(s: Session, key: str, value: str) -> None:
         s.add(Meta(key=key, value=value))
 
 
-def daily_backup(keep: int = 30) -> None:
-    """1日1回、データベースのコピーを保存する。"""
-    src = paths.db_path()
-    if not src.exists():
-        return
-    dst = paths.backup_dir() / f"tokutai_{date.today():%Y%m%d}.db"
+def daily_backup(keep: int = 30, today: date | None = None) -> bool:
+    """1日1回、データベースのコピーを保存する。新しく作ったときだけ True を返す。
+
+    使用中でも整合したコピーが取れるよう、SQLite のバックアップ機能を使う。
+    起動時と、同期のたびに呼ぶ（トレイに常駐して再起動しなくても、毎日取れるようにするため）。
+    """
+    src = _engine.url.database if _engine is not None else str(paths.db_path())
+    if not src or not Path(src).exists():
+        return False
+    dst = paths.backup_dir() / f"tokutai_{(today or date.today()):%Y%m%d}.db"
+    made = False
     if not dst.exists():
-        shutil.copyfile(src, dst)
-    files = sorted(paths.backup_dir().glob("tokutai_*.db"))
-    for old in files[:-keep]:
+        tmp = dst.with_suffix(".tmp")
+        with closing(sqlite3.connect(src)) as a, closing(sqlite3.connect(tmp)) as b:
+            a.backup(b)
+        tmp.replace(dst)
+        made = True
+    for old in sorted(paths.backup_dir().glob("tokutai_*.db"))[:-keep]:
         old.unlink(missing_ok=True)
+    return made
