@@ -8,8 +8,8 @@ from datetime import date
 from PyQt6.QtCore import QDate, QObject, QRunnable, Qt, QThreadPool, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QBrush, QColor, QIcon, QPainter, QPixmap
 from PyQt6.QtWidgets import (
-    QAbstractItemView, QApplication, QComboBox, QDateEdit, QDialog, QDialogButtonBox, QFormLayout,
-    QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox, QPushButton,
+    QAbstractItemView, QApplication, QCheckBox, QComboBox, QDateEdit, QDialog, QDialogButtonBox,
+    QFileDialog, QFormLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox, QPushButton,
     QSystemTrayIcon, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 from sqlalchemy import select
@@ -79,6 +79,37 @@ class DateDialog(QDialog):
 
     def value(self) -> date:
         return self.edit.date().toPyDate()
+
+
+class EditDatesDialog(QDialog):
+    """日付の入れ間違いを、その場で直す。チェックを外すと、その日付は空になる。"""
+    FIELDS = (("received_date", "受付日"), ("defect_date", "不備連絡日"),
+              ("docs_date", "書類到着日"), ("done_date", "処理済日"))
+
+    def __init__(self, case: Case, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"日付を修正 {case.case_no}")
+        form = QFormLayout(self)
+        self._rows: dict[str, tuple[QCheckBox, QDateEdit]] = {}
+        for attr, label in self.FIELDS:
+            cur = getattr(case, attr)
+            chk = QCheckBox("あり"); chk.setChecked(cur is not None)
+            ed = QDateEdit(QDate(cur.year, cur.month, cur.day) if cur else QDate.currentDate())
+            ed.setCalendarPopup(True)
+            ed.setDisplayFormat("yyyy-MM-dd")
+            ed.setEnabled(cur is not None)
+            chk.toggled.connect(ed.setEnabled)
+            row = QHBoxLayout(); row.addWidget(chk); row.addWidget(ed, 1)
+            form.addRow(label, row)
+            self._rows[attr] = (chk, ed)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        bb.accepted.connect(self.accept)
+        bb.rejected.connect(self.reject)
+        form.addRow(bb)
+
+    def values(self) -> dict[str, date | None]:
+        return {a: (ed.date().toPyDate() if chk.isChecked() else None)
+                for a, (chk, ed) in self._rows.items()}
 
 
 class AddCaseDialog(QDialog):
@@ -164,6 +195,9 @@ class MainWindow(QMainWindow):
         self._show_sort_indicator()
         self.table.setColumnWidth(3, 240)
         self.table.setColumnWidth(2, 160)
+        self.table.cellDoubleClicked.connect(lambda *_: self.edit_dates())
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._table_menu)
         v.addWidget(self.table, 1)
 
         btns = QHBoxLayout()
@@ -171,8 +205,8 @@ class MainWindow(QMainWindow):
             ("書類が届いた", self.mark_arrived), ("到着を取り消す", self.cancel_arrived),
             ("不備を連絡した", self.mark_defect), ("不備を取り消す", self.cancel_defect),
             ("今すぐ更新", self.sync), ("案件を追加", self.add_case),
-            ("会社名を編集", self.edit_company), ("備考を編集", self.edit_note),
-            ("処理済を切替", self.toggle_done), ("設定", self.open_settings),
+            ("日付を修正", self.edit_dates), ("会社名を編集", self.edit_company), ("備考を編集", self.edit_note),
+            ("処理済を切替", self.toggle_done), ("CSV出力", self.export_csv), ("設定", self.open_settings),
         ):
             b = QPushButton(text)
             b.clicked.connect(fn)
@@ -395,6 +429,49 @@ class MainWindow(QMainWindow):
         if no and QMessageBox.question(self, "不備を取り消す", f"{no} の不備連絡日を取り消しますか？") \
                 == QMessageBox.StandardButton.Yes:
             self._update_case(no, lambda c: setattr(c, "defect_date", None))
+
+    def edit_dates(self) -> None:
+        no = self._selected_no()
+        if not no:
+            return
+        with db.session() as s:
+            dlg = EditDatesDialog(s.get(Case, no), self)
+        if dlg.exec():
+            vals = dlg.values()
+            self._update_case(no, lambda c: [setattr(c, k, v) for k, v in vals.items()])
+
+    def _table_menu(self, pos) -> None:
+        item = self.table.itemAt(pos)
+        if item is None:
+            return
+        self.table.setCurrentCell(item.row(), 0)
+        menu = QMenu(self)
+        for text, fn in (
+            ("書類が届いた", self.mark_arrived), ("到着を取り消す", self.cancel_arrived),
+            ("不備を連絡した", self.mark_defect), ("不備を取り消す", self.cancel_defect),
+            ("処理済を切替", self.toggle_done), None,
+            ("日付を修正", self.edit_dates), ("会社名を編集", self.edit_company),
+            ("備考を編集", self.edit_note),
+        ):
+            if text is None:
+                menu.addSeparator()
+            else:
+                menu.addAction(text, fn)
+        menu.exec(self.table.viewport().mapToGlobal(pos))
+
+    def export_csv(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(
+            self, "CSV出力", f"tokutai_{date.today():%Y%m%d}.csv", "CSVファイル (*.csv)")
+        if not path:
+            return
+        with db.session() as s:
+            cases = list(s.scalars(select(Case)))
+        try:
+            n = service.export_csv(cases, path)
+        except OSError as e:
+            QMessageBox.warning(self, "CSV出力", f"書き出せませんでした: {e}")
+            return
+        QMessageBox.information(self, "CSV出力", f"{n}件を書き出しました。\n（絞り込みに関係なく、すべての案件です）")
 
     def toggle_done(self) -> None:
         no = self._selected_no()

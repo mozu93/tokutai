@@ -188,3 +188,17 @@ def test_select_sort_puts_empty_last():
     assert sel("受付日", False) == ["A2", "A1", "A3", "A4"]  # 降順でも空は最後
     assert sel("案件番号", False) == ["A4", "A3", "A2", "A1"]
     assert sel("状態", True) == ["A1", "A2", "A4", "A3"]     # 受付 → 不備 → 書類到着 → 処理済
+
+
+def test_export_csv(tmp_path):
+    cs = _cases_for_view()
+    p = tmp_path / "out.csv"
+    assert service.export_csv(cs, p) == 4
+    raw = p.read_bytes()
+    assert raw.startswith(b"\xef\xbb\xbf")  # Excel用のBOM
+    import csv
+    rows = list(csv.reader(raw.decode("utf-8-sig").splitlines()))
+    assert rows[0] == service.CSV_HEADER
+    assert [r[1] for r in rows[1:]] == ["A4", "A3", "A1", "A2"]  # 受付日の古い順、空が先頭
+    a3 = next(r for r in rows if r[1] == "A3")
+    assert a3[0] == "処理済" and a3[6] == "2026-10-09"

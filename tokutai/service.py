@@ -133,6 +133,27 @@ def select_rows(cases: list[Case], alerts: dict[str, Alert], mode: str, query: s
     return rows
 
 
+# ---------- CSV出力 ----------
+CSV_HEADER = ["状態", "案件番号", "会社名", "受付日", "不備連絡日", "書類到着日", "処理済日", "備考"]
+
+
+def export_csv(cases: list[Case], path) -> int:
+    """案件をCSVに書き出す（Excelで開けるようBOM付きUTF-8）。書き出した件数を返す。"""
+    import csv
+
+    def f(d: date | None) -> str:
+        return d.strftime("%Y-%m-%d") if d else ""
+
+    rows = sorted(cases, key=lambda c: (c.received_date or date.min, c.case_no))
+    with open(path, "w", encoding="utf-8-sig", newline="") as fp:
+        w = csv.writer(fp)
+        w.writerow(CSV_HEADER)
+        for c in rows:
+            w.writerow([c.status, c.case_no, c.company, f(c.received_date), f(c.defect_date),
+                        f(c.docs_date), f(c.done_date), c.note])
+    return len(rows)
+
+
 # ---------- 取り込み ----------
 class MailSource(Protocol):
     def fetch_messages(self, folder_id: str, since: datetime, interactive: bool = ...) -> list: ...
