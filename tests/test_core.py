@@ -202,3 +202,11 @@ def test_export_csv(tmp_path):
     assert [r[1] for r in rows[1:]] == ["A4", "A3", "A1", "A2"]  # 案件作成日の古い順、空が先頭
     a3 = next(r for r in rows if r[1] == "A3")
     assert a3[0] == "処理済" and a3[6] == "2026-10-09"
+
+
+def test_bulk_targets():
+    sel = [("A", db.STATUS_RECEIVED), ("B", db.STATUS_DEFECT), ("C", db.STATUS_ARRIVED), ("D", db.STATUS_DONE)]
+    assert service.bulk_targets(sel, service.BULK_ARRIVED) == (["A", "B", "C"], 1)
+    assert service.bulk_targets(sel, service.BULK_DEFECT) == (["A", "C"], 2)   # 不備中・処理済は対象外
+    assert service.bulk_targets(sel, service.BULK_DONE) == (["A", "B", "C"], 1)
+    assert service.bulk_targets([("D", db.STATUS_DONE)], service.BULK_ARRIVED) == ([], 1)

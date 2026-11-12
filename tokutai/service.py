@@ -133,6 +133,21 @@ def select_rows(cases: list[Case], alerts: dict[str, Alert], mode: str, query: s
     return rows
 
 
+# ---------- まとめて処理 ----------
+BULK_ARRIVED, BULK_DEFECT, BULK_DONE = "arrived", "defect", "done"
+
+
+def bulk_targets(selection: list[tuple[str, str]], action: str) -> tuple[list[str], int]:
+    """選んだ案件（案件番号, 状態）のうち、その操作ができるものと、対象外の件数を返す。
+
+    処理済の案件には、到着・不備・処理済のどれも記録しない。不備の案件に「不備を連絡した」を
+    重ねて記録することもしない（連絡日が上書きされるのを防ぐ）。
+    """
+    skip = {db.STATUS_DONE} | ({db.STATUS_DEFECT} if action == BULK_DEFECT else set())
+    targets = [no for no, st in selection if st not in skip]
+    return targets, len(selection) - len(targets)
+
+
 # ---------- CSV出力 ----------
 CSV_HEADER = ["状態", "案件番号", "会社名", "案件作成日", "不備連絡日", "書類到着日", "処理済日", "備考"]
 

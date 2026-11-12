@@ -5,7 +5,7 @@ import logging
 import threading
 from datetime import date
 
-from PyQt6.QtCore import QDate, QObject, QRunnable, Qt, QThreadPool, QTimer, pyqtSignal
+from PyQt6.QtCore import QDate, QItemSelectionModel, QObject, QRunnable, Qt, QThreadPool, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QBrush, QColor, QIcon, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QDateEdit, QDialog, QDialogButtonBox,
@@ -187,7 +187,7 @@ class MainWindow(QMainWindow):
         self.table = QTableWidget(0, len(COLUMNS))
         self.table.setHorizontalHeaderLabels(COLUMNS)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         hh = self.table.horizontalHeader()
         hh.setStretchLastSection(True)
@@ -207,7 +207,7 @@ class MainWindow(QMainWindow):
 
         # よく使う操作だけをボタンにし、選んだ案件の状態に合わせて使えるものだけ有効にする。
         # それ以外は「その他」にまとめる（右クリックでも同じ操作ができる）。
-        hint = QLabel("案件の行を選んで操作します。行のダブルクリックで日付の修正、右クリックでメニューが開きます。")
+        hint = QLabel("案件の行を選んで操作します（Ctrl・Shiftキーで複数選択すると、まとめて処理できます）。ダブルクリックで日付の修正、右クリックでメニューが開きます。")
         hint.setStyleSheet("color:#666;")
         v.addWidget(hint)
         btns = QHBoxLayout()
@@ -235,7 +235,7 @@ class MainWindow(QMainWindow):
         btns.addWidget(self.btn_sync)
         btns.addWidget(self.btn_more)
         v.addLayout(btns)
-        self.table.currentCellChanged.connect(lambda *_: self._update_buttons())
+        self.table.itemSelectionChanged.connect(self._update_buttons)
         self._update_buttons()
 
         self.status = QLabel()
@@ -281,12 +281,21 @@ class MainWindow(QMainWindow):
         QApplication.instance().quit()
 
     # ---------- データ表示 ----------
+    def _selection(self) -> list[tuple[str, str]]:
+        """選んでいる案件（案件番号, 状態）を、一覧の上から順に返す。"""
+        rows = sorted({i.row() for i in self.table.selectionModel().selectedRows()})
+        return [(self.table.item(r, COL_NO).text(), self.table.item(r, COL_STATUS).text()) for r in rows]
+
     def _selected_no(self) -> str | None:
-        r = self.table.currentRow()
-        if r < 0:
+        """1件だけ選んでいるときの案件番号。0件・複数件のときは案内を出して None。"""
+        sel = self._selection()
+        if not sel:
             QMessageBox.information(self, "案件の選択", "一覧で案件を選んでください。")
             return None
-        return self.table.item(r, COL_NO).text()
+        if len(sel) > 1:
+            QMessageBox.information(self, "案件の選択", "この操作は、案件を1件だけ選んで行ってください。")
+            return None
+        return sel[0][0]
 
     def reload(self) -> None:
         today = date.today()
@@ -295,6 +304,7 @@ class MainWindow(QMainWindow):
         alerts = {a.case_no: a for a in service.collect_alerts(cases, today, self.st)}
         rows = service.select_rows(cases, alerts, self.filter.currentText(), self.search.text(),
                                    self.st.sort_column, self.st.sort_ascending, today)
+        keep = {no for no, _ in self._selection()}  # 並びが変わっても、同じ案件の選択を保つ
         self.table.setRowCount(len(rows))
         for i, c in enumerate(rows):
             a = alerts.get(c.case_no)
@@ -311,6 +321,12 @@ class MainWindow(QMainWindow):
                 elif c.done_date:
                     it.setForeground(QBrush(GRAY_FG))
                 self.table.setItem(i, j, it)
+        sm = self.table.selectionModel()
+        sm.clearSelection()
+        for i, c in enumerate(rows):
+            if c.case_no in keep:
+                sm.select(self.table.model().index(i, 0),
+                          QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows)
         self._alert_count = len(alerts)
         if alerts:
             self.banner.setText(f"警告 {len(alerts)} 件")
@@ -365,20 +381,26 @@ class MainWindow(QMainWindow):
         else:
             hh.setSortIndicatorShown(False)
 
-    def _selected_status(self) -> str | None:
-        r = self.table.currentRow()
-        it = self.table.item(r, COL_STATUS) if r >= 0 else None
-        return it.text() if it else None
-
     def _update_buttons(self) -> None:
-        """選んだ案件の状態に合わせて、押せるボタンと文言を切り替える。"""
-        st = self._selected_status()
-        can_edit = st is not None and st != db.STATUS_DONE
-        self.btn_arrived.setEnabled(can_edit)
-        self.btn_arrived.setText("補正書類が届いた" if st == db.STATUS_DEFECT else "書類が届いた")
-        self.btn_defect.setEnabled(can_edit and st != db.STATUS_DEFECT)
-        self.btn_done.setEnabled(st is not None)
-        self.btn_done.setText("処理済を取り消す" if st == db.STATUS_DONE else "処理済にする")
+        """選んだ案件の状態に合わせて、押せるボタンと文言を切り替える。複数選択では件数を添える。"""
+        sel = self._selection()
+        arrive, _ = service.bulk_targets(sel, service.BULK_ARRIVED)
+        defect, _ = service.bulk_targets(sel, service.BULK_DEFECT)
+        done, _ = service.bulk_targets(sel, service.BULK_DONE)
+        statuses = {st for _, st in sel}
+        multi = len(sel) > 1
+
+        def label(text: str, n: int) -> str:
+            return f"{text}（{n}件）" if multi and n else text
+
+        self.btn_arrived.setEnabled(bool(arrive))
+        base = "補正書類が届いた" if statuses == {db.STATUS_DEFECT} else "書類が届いた"
+        self.btn_arrived.setText(label(base, len(arrive)))
+        self.btn_defect.setEnabled(bool(defect))
+        self.btn_defect.setText(label("不備を連絡した", len(defect)))
+        all_done = bool(sel) and statuses == {db.STATUS_DONE}
+        self.btn_done.setEnabled(bool(sel))
+        self.btn_done.setText(label("処理済を取り消す", len(sel)) if all_done else label("処理済にする", len(done)))
 
     def _popup_new_alerts(self, alerts: dict) -> None:
         keys = {(a.case_no, a.kind) for a in alerts.values()}
@@ -445,21 +467,42 @@ class MainWindow(QMainWindow):
                 s.commit()
         self.reload()
 
-    def mark_arrived(self) -> None:
-        no = self._selected_no()
-        if not no:
-            return
+    def _update_cases(self, nos: list[str], fn) -> None:
         with db.session() as s:
-            c = s.get(Case, no)
-            if c.done_date:
-                QMessageBox.information(self, "書類が届いた", "この案件はすでに処理済です。")
+            for no in nos:
+                c = s.get(Case, no)
+                if c:
+                    fn(c)
+            s.commit()
+        self.reload()
+
+    def _bulk(self, title: str, action: str, label: str, apply) -> None:
+        """選んだ案件のうち対象のものに、同じ日付をまとめて記録する。日付は1回だけ聞く。"""
+        sel = self._selection()
+        if not sel:
+            QMessageBox.information(self, "案件の選択", "一覧で案件を選んでください。")
+            return
+        targets, skipped = service.bulk_targets(sel, action)
+        if not targets:
+            QMessageBox.information(self, title, "選んだ案件は、すでにこの操作ができない状態です。")
+            return
+        dlg = DateDialog(title, label, self)
+        if not dlg.exec():
+            return
+        if len(sel) > 1:
+            msg = f"{len(targets)}件に、{label} {dlg.value():%Y-%m-%d} を記録します。"
+            if skipped:
+                msg += f"\n（状態が合わない{skipped}件は対象外です）"
+            if QMessageBox.question(self, title, msg) != QMessageBox.StandardButton.Yes:
                 return
-        dlg = DateDialog("書類が届いた", "書類到着日", self)
-        if dlg.exec():
-            def f(c):
-                c.docs_date = dlg.value()
-                c.defect_date = None  # 補正書類が届いたので不備は解消
-            self._update_case(no, f)
+        d = dlg.value()
+        self._update_cases(targets, lambda c: apply(c, d))
+
+    def mark_arrived(self) -> None:
+        def apply(c, d):
+            c.docs_date = d
+            c.defect_date = None  # 補正書類が届いたので不備は解消
+        self._bulk("書類が届いた", service.BULK_ARRIVED, "書類到着日", apply)
 
     def cancel_arrived(self) -> None:
         no = self._selected_no()
@@ -468,16 +511,7 @@ class MainWindow(QMainWindow):
             self._update_case(no, lambda c: setattr(c, "docs_date", None))
 
     def mark_defect(self) -> None:
-        no = self._selected_no()
-        if not no:
-            return
-        with db.session() as s:
-            if s.get(Case, no).done_date:
-                QMessageBox.information(self, "不備を連絡した", "この案件はすでに処理済です。")
-                return
-        dlg = DateDialog("不備を連絡した", "不備を相手に連絡した日", self)
-        if dlg.exec():
-            self._update_case(no, lambda c: service.record_defect(c, dlg.value()))
+        self._bulk("不備を連絡した", service.BULK_DEFECT, "不備を相手に連絡した日", service.record_defect)
 
     def cancel_defect(self) -> None:
         no = self._selected_no()
@@ -499,7 +533,8 @@ class MainWindow(QMainWindow):
         item = self.table.itemAt(pos)
         if item is None:
             return
-        self.table.setCurrentCell(item.row(), COL_STATUS)
+        if item.row() not in {i.row() for i in self.table.selectionModel().selectedRows()}:
+            self.table.setCurrentCell(item.row(), COL_STATUS)
         menu = QMenu(self)
         for b in (self.btn_arrived, self.btn_defect, self.btn_done):
             menu.addAction(b.text(), b.click).setEnabled(b.isEnabled())
@@ -527,20 +562,14 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "CSV出力", f"{n}件を書き出しました。\n（絞り込みに関係なく、すべての案件です）")
 
     def toggle_done(self) -> None:
-        no = self._selected_no()
-        if not no:
+        sel = self._selection()
+        if sel and all(st == db.STATUS_DONE for _, st in sel):  # 全部が処理済なら、取り消す
+            n = len(sel)
+            text = f"{sel[0][0]} の処理済を取り消しますか？" if n == 1 else f"{n}件の処理済を取り消しますか？"
+            if QMessageBox.question(self, "処理済を取り消す", text) == QMessageBox.StandardButton.Yes:
+                self._update_cases([no for no, _ in sel], lambda c: setattr(c, "done_date", None))
             return
-        with db.session() as s:
-            c = s.get(Case, no)
-            is_done = c.done_date is not None
-        if is_done:
-            if QMessageBox.question(self, "処理済を切替", f"{no} の処理済を取り消しますか？") \
-                    == QMessageBox.StandardButton.Yes:
-                self._update_case(no, lambda c: setattr(c, "done_date", None))
-        else:
-            dlg = DateDialog("処理済にする", "処理済日", self)
-            if dlg.exec():
-                self._update_case(no, lambda c: setattr(c, "done_date", dlg.value()))
+        self._bulk("処理済にする", service.BULK_DONE, "処理済日", lambda c, d: setattr(c, "done_date", d))
 
     def add_case(self) -> None:
         dlg = AddCaseDialog(self)
