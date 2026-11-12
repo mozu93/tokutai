@@ -52,7 +52,7 @@ def alert_kind(c: Case, today: date, s: Settings) -> str | None:
 
 
 def elapsed_days(c: Case, today: date) -> int | None:
-    """状態ごとの経過営業日。受付→受付日から、書類到着→到着日から。処理済は空。"""
+    """状態ごとの経過営業日。受付→案件作成日から、書類到着→到着日から。処理済は空。"""
     if c.done_date:
         return None
     base = c.docs_date or c.defect_date or c.received_date
@@ -89,7 +89,7 @@ def _sort_value(col: str, c: Case, alert: Alert | None, today: date):
         return c.case_no
     if col == "会社名":
         return c.company or None
-    if col == "受付日":
+    if col == "案件作成日":
         return c.received_date
     if col == "不備連絡日":
         return c.defect_date
@@ -128,13 +128,13 @@ def select_rows(cases: list[Case], alerts: dict[str, Alert], mode: str, query: s
         have = sorted((x for x in filled if x[1] is not None), key=lambda x: (x[1], x[0].case_no),
                       reverse=not ascending)
         rows = [c for c, _ in have] + [c for c, v in filled if v is None]
-    else:  # 標準: 警告 → 未完了 → 処理済、受付日の古い順
+    else:  # 標準: 警告 → 未完了 → 処理済、案件作成日の古い順
         rows.sort(key=lambda c: (c.case_no not in alerts, c.done_date is not None, c.received_date or date.min))
     return rows
 
 
 # ---------- CSV出力 ----------
-CSV_HEADER = ["状態", "案件番号", "会社名", "受付日", "不備連絡日", "書類到着日", "処理済日", "備考"]
+CSV_HEADER = ["状態", "案件番号", "会社名", "案件作成日", "不備連絡日", "書類到着日", "処理済日", "備考"]
 
 
 def export_csv(cases: list[Case], path) -> int:
@@ -261,7 +261,7 @@ def purge_old_done(s: Session, today: date) -> int:
 def build_notice(alerts: list[Alert], st: Settings) -> tuple[str, str]:
     lines = [f"特退金脱退案件で、期限を過ぎた案件が{len(alerts)}件あります。", ""]
     for kind, title, days in (
-        (ALERT_DOCS, "【書類未着】受付から", st.warn_docs_days),
+        (ALERT_DOCS, "【書類未着】案件作成から", st.warn_docs_days),
         (ALERT_DEFECT, "【補正書類未着】不備連絡から", st.warn_defect_days),
         (ALERT_PROCESS, "【WEB処理未完了】書類到着から", st.warn_process_days),
     ):

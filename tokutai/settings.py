@@ -46,6 +46,8 @@ def load() -> Settings:
         for k, v in raw.items():
             if k in names:
                 setattr(s, k, v)
+    if s.sort_column == "受付日":  # 列名の変更（受付日 → 案件作成日）への対応
+        s.sort_column = "案件作成日"
     mails = list(s.manager_emails)[:2]
     while len(mails) < 2:
         mails.append("")

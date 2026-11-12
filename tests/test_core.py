@@ -184,8 +184,8 @@ def test_select_filters():
 def test_select_sort_puts_empty_last():
     cs, today = _cases_for_view(), date(2026, 11, 12)
     sel = lambda col, asc: _nos(service.select_rows(cs, {}, "すべて", "", col, asc, today))
-    assert sel("受付日", True) == ["A3", "A1", "A2", "A4"]   # 空のA4は最後
-    assert sel("受付日", False) == ["A2", "A1", "A3", "A4"]  # 降順でも空は最後
+    assert sel("案件作成日", True) == ["A3", "A1", "A2", "A4"]   # 空のA4は最後
+    assert sel("案件作成日", False) == ["A2", "A1", "A3", "A4"]  # 降順でも空は最後
     assert sel("案件番号", False) == ["A4", "A3", "A2", "A1"]
     assert sel("状態", True) == ["A1", "A2", "A4", "A3"]     # 受付 → 不備 → 書類到着 → 処理済
 
@@ -199,6 +199,6 @@ def test_export_csv(tmp_path):
     import csv
     rows = list(csv.reader(raw.decode("utf-8-sig").splitlines()))
     assert rows[0] == service.CSV_HEADER
-    assert [r[1] for r in rows[1:]] == ["A4", "A3", "A1", "A2"]  # 受付日の古い順、空が先頭
+    assert [r[1] for r in rows[1:]] == ["A4", "A3", "A1", "A2"]  # 案件作成日の古い順、空が先頭
     a3 = next(r for r in rows if r[1] == "A3")
     assert a3[0] == "処理済" and a3[6] == "2026-10-09"

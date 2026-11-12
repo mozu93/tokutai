@@ -23,7 +23,7 @@ from .ui_settings import SettingsDialog
 
 log = logging.getLogger(__name__)
 
-COLUMNS = ["状態", "警告", "案件番号", "会社名", "受付日", "不備連絡日", "書類到着日", "処理済日", "経過日数", "備考"]
+COLUMNS = ["状態", "警告", "案件番号", "会社名", "案件作成日", "不備連絡日", "書類到着日", "処理済日", "経過日数", "備考"]
 RED_BG = QColor(255, 205, 205)
 GRAY_FG = QColor(130, 130, 130)
 
@@ -83,7 +83,7 @@ class DateDialog(QDialog):
 
 class EditDatesDialog(QDialog):
     """日付の入れ間違いを、その場で直す。チェックを外すと、その日付は空になる。"""
-    FIELDS = (("received_date", "受付日"), ("defect_date", "不備連絡日"),
+    FIELDS = (("received_date", "案件作成日"), ("defect_date", "不備連絡日"),
               ("docs_date", "書類到着日"), ("done_date", "処理済日"))
 
     def __init__(self, case: Case, parent=None):
@@ -124,7 +124,7 @@ class AddCaseDialog(QDialog):
         form = QFormLayout(self)
         form.addRow("案件番号", self.no)
         form.addRow("会社名", self.company)
-        form.addRow("受付日", self.recv)
+        form.addRow("案件作成日", self.recv)
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
