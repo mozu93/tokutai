@@ -194,26 +194,45 @@ class MainWindow(QMainWindow):
         hh.sectionClicked.connect(self._header_clicked)
         self._show_sort_indicator()
         self.table.setColumnWidth(3, 240)
+        self.table.setColumnWidth(0, 130)
         self.table.setColumnWidth(2, 160)
         self.table.cellDoubleClicked.connect(lambda *_: self.edit_dates())
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._table_menu)
         v.addWidget(self.table, 1)
 
+        # よく使う操作だけをボタンにし、選んだ案件の状態に合わせて使えるものだけ有効にする。
+        # それ以外は「その他」にまとめる（右クリックでも同じ操作ができる）。
+        hint = QLabel("案件の行を選んで操作します。行のダブルクリックで日付の修正、右クリックでメニューが開きます。")
+        hint.setStyleSheet("color:#666;")
+        v.addWidget(hint)
         btns = QHBoxLayout()
-        for text, fn in (
-            ("書類が届いた", self.mark_arrived), ("到着を取り消す", self.cancel_arrived),
-            ("不備を連絡した", self.mark_defect), ("不備を取り消す", self.cancel_defect),
-            ("今すぐ更新", self.sync), ("案件を追加", self.add_case),
-            ("日付を修正", self.edit_dates), ("会社名を編集", self.edit_company), ("備考を編集", self.edit_note),
-            ("処理済を切替", self.toggle_done), ("CSV出力", self.export_csv), ("設定", self.open_settings),
+        self.btn_arrived = QPushButton("書類が届いた"); self.btn_arrived.clicked.connect(self.mark_arrived)
+        self.btn_defect = QPushButton("不備を連絡した"); self.btn_defect.clicked.connect(self.mark_defect)
+        self.btn_done = QPushButton("処理済にする"); self.btn_done.clicked.connect(self.toggle_done)
+        self.btn_sync = QPushButton("今すぐ更新"); self.btn_sync.clicked.connect(self.sync)
+        self.btn_more = QPushButton("その他")
+        more = QMenu(self.btn_more)
+        for item in (
+            ("案件を追加", self.add_case), None,
+            ("日付を修正", self.edit_dates), ("会社名を編集", self.edit_company),
+            ("備考を編集", self.edit_note), None,
+            ("書類到着を取り消す", self.cancel_arrived), ("不備を取り消す", self.cancel_defect), None,
+            ("CSV出力", self.export_csv), ("設定", self.open_settings),
         ):
-            b = QPushButton(text)
-            b.clicked.connect(fn)
+            if item is None:
+                more.addSeparator()
+            else:
+                more.addAction(item[0], item[1])
+        self.btn_more.setMenu(more)
+        for b in (self.btn_arrived, self.btn_defect, self.btn_done):
             btns.addWidget(b)
-            if text == "今すぐ更新":
-                self.btn_sync = b
+        btns.addStretch()
+        btns.addWidget(self.btn_sync)
+        btns.addWidget(self.btn_more)
         v.addLayout(btns)
+        self.table.currentCellChanged.connect(lambda *_: self._update_buttons())
+        self._update_buttons()
 
         self.status = QLabel()
         self.statusBar().addWidget(self.status, 1)
@@ -296,6 +315,7 @@ class MainWindow(QMainWindow):
         self.tray.setIcon(self.icon_warn if alerts else self.icon_ok)
         self._popup_new_alerts(alerts)
         self._update_status()
+        self._update_buttons()
 
     def _filter_changed(self, *_args) -> None:
         self.st.view_filter = self.filter.currentText()
@@ -324,6 +344,21 @@ class MainWindow(QMainWindow):
             hh.setSortIndicatorShown(True)
         else:
             hh.setSortIndicatorShown(False)
+
+    def _selected_status(self) -> str | None:
+        r = self.table.currentRow()
+        it = self.table.item(r, 0) if r >= 0 else None
+        return it.text() if it else None
+
+    def _update_buttons(self) -> None:
+        """選んだ案件の状態に合わせて、押せるボタンと文言を切り替える。"""
+        st = self._selected_status()
+        can_edit = st is not None and st != db.STATUS_DONE
+        self.btn_arrived.setEnabled(can_edit)
+        self.btn_arrived.setText("補正書類が届いた" if st == db.STATUS_DEFECT else "書類が届いた")
+        self.btn_defect.setEnabled(can_edit and st != db.STATUS_DEFECT)
+        self.btn_done.setEnabled(st is not None)
+        self.btn_done.setText("処理済を取り消す" if st == db.STATUS_DONE else "処理済にする")
 
     def _popup_new_alerts(self, alerts: dict) -> None:
         keys = {(a.case_no, a.kind) for a in alerts.values()}
@@ -446,17 +481,15 @@ class MainWindow(QMainWindow):
             return
         self.table.setCurrentCell(item.row(), 0)
         menu = QMenu(self)
+        for b in (self.btn_arrived, self.btn_defect, self.btn_done):
+            menu.addAction(b.text(), b.click).setEnabled(b.isEnabled())
+        menu.addSeparator()
         for text, fn in (
-            ("書類が届いた", self.mark_arrived), ("到着を取り消す", self.cancel_arrived),
-            ("不備を連絡した", self.mark_defect), ("不備を取り消す", self.cancel_defect),
-            ("処理済を切替", self.toggle_done), None,
             ("日付を修正", self.edit_dates), ("会社名を編集", self.edit_company),
-            ("備考を編集", self.edit_note),
+            ("備考を編集", self.edit_note), ("書類到着を取り消す", self.cancel_arrived),
+            ("不備を取り消す", self.cancel_defect),
         ):
-            if text is None:
-                menu.addSeparator()
-            else:
-                menu.addAction(text, fn)
+            menu.addAction(text, fn)
         menu.exec(self.table.viewport().mapToGlobal(pos))
 
     def export_csv(self) -> None:
