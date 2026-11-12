@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>特退金脱退 処理漏れ防止アプリ 仕様書</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --ink: #1f2328;
+    --quiet: #59636e;
+    --rule: #d1d9e0;
+    --tint: #f6f8fa;
+    --accent: #0969da;
+    --warn: #bf8700;
+    --axis: #8c959f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117;
+      --ink: #e6edf3;
+      --quiet: #9198a1;
+      --rule: #30363d;
+      --tint: #161b22;
+      --accent: #4493f8;
+      --warn: #d29922;
+      --axis: #7d8590;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Yu Gothic", "Meiryo", system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.85;
+  }
+  main { max-width: 860px; margin: 0 auto; padding: 40px 20px 80px; }
+  h1 { font-size: 1.75rem; line-height: 1.4; margin: 0 0 8px; }
+  .byline { color: var(--quiet); margin: 0 0 32px; font-size: 0.9rem; }
+  h2 {
+    font-size: 1.3rem;
+    line-height: 1.5;
+    margin: 44px 0 12px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--rule);
+  }
+  p { margin: 0 0 14px; }
+  a { color: var(--accent); }
+  ul, ol { margin: 0 0 16px; padding-left: 1.5em; }
+  li { margin: 4px 0; }
+  .label { font-weight: 700; margin: 20px 0 6px; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0 20px;
+    font-size: 0.95rem;
+    line-height: 1.7;
+  }
+  th, td {
+    border: 1px solid var(--rule);
+    padding: 8px 12px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: var(--tint); font-weight: 700; white-space: nowrap; }
+  figure { margin: 20px 0; }
+  figure svg { width: 100%; height: auto; display: block; }
+  figcaption { color: var(--quiet); font-size: 0.85rem; margin-top: 4px; }
+  ul.checks { list-style: none; padding-left: 0; }
+  ul.checks li { display: flex; gap: 10px; align-items: flex-start; }
+  ul.checks input { margin-top: 0.55em; }
+
+  /* 業務フロー図 */
+  .d-text { fill: var(--ink); font-size: 12px; }
+  .d-title { fill: var(--ink); font-size: 15px; font-weight: 600; }
+  .d-strong { font-weight: 600; }
+  .d-box { fill: none; stroke: var(--axis); stroke-width: 1.25; }
+  .d-warn { fill: var(--warn); fill-opacity: 0.12; stroke: var(--warn); stroke-width: 2; }
+  .d-done { fill: var(--accent); fill-opacity: 0.12; stroke: var(--accent); stroke-width: 2; }
+  .d-line { fill: none; stroke: var(--axis); stroke-width: 1.25; }
+  .d-line-warn { fill: none; stroke: var(--warn); stroke-width: 1.25; }
+  .d-head { fill: var(--axis); }
+  .d-head-warn { fill: var(--warn); }
+
+  @media print {
+    main { padding: 0; max-width: none; }
+    h2 { break-after: avoid; }
+    table, figure { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<main>
+
+<h1>特退金脱退 処理漏れ防止アプリ 仕様書</h1>
+<p class="byline">2026-11-12 · たか</p>
+
+<h2>1. 目的と背景</h2>
+<p>アクサ生命の特退金（特定退職金共済制度）脱退案件で、書類の未着と、書類到着後のWEB処理漏れを防ぐアプリを作る。案件ごとの進み具合を自動で記録し、期限を過ぎた案件は警告表示と管理職への自動メールで知らせる。</p>
+<ul>
+  <li>目的: 案件番号ごとの受付簿を自動で作り、書類到着日と処理済を記録して、滞留を早く見つける。</li>
+  <li>利用者: 総務の担当者（書類到着の記録、画面での確認）と管理職（警告メールの受信）。</li>
+  <li>対象外: 脱退事由（退職・死亡）の管理、脱退書類の内容確認、WEB処理そのものの自動化。</li>
+</ul>
+
+<h2>2. 業務フロー</h2>
+<p>案件作成メールが届くと受付簿に自動で登録され、処理完了メールが届くと処理済になる。アプリ上で人が操作するのは「書類が届いた」ボタンだけ。</p>
+
+<figure>
+<svg viewBox="0 0 760 384" role="img" aria-label="書類の未着と処理の遅れは、警告になって管理職に届く">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="d-head" d="M0 0L10 5L0 10z"/></marker>
+    <marker id="arrow-warn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="d-head-warn" d="M0 0L10 5L0 10z"/></marker>
+  </defs>
+  <text class="d-title" x="24" y="34">書類の未着と処理の遅れは、警告になって管理職に届く</text>
+
+  <path class="d-line" d="M144 110H170" marker-end="url(#arrow)"/>
+  <path class="d-line" d="M290 110H316" marker-end="url(#arrow)"/>
+  <path class="d-line" d="M436 110H462" marker-end="url(#arrow)"/>
+  <path class="d-line" d="M582 110H608" marker-end="url(#arrow)"/>
+  <path class="d-line" d="M668 138V202" marker-end="url(#arrow)"/>
+  <path class="d-line-warn" d="M230 138V202" marker-end="url(#arrow-warn)"/>
+  <path class="d-line-warn" d="M522 138V202" marker-end="url(#arrow-warn)"/>
+  <path class="d-line-warn" d="M230 258V330H266" marker-end="url(#arrow-warn)"/>
+  <path class="d-line-warn" d="M522 258V330H486" marker-end="url(#arrow-warn)"/>
+
+  <rect class="d-box" x="24" y="82" width="120" height="56" rx="8"/>
+  <text class="d-text" x="84" y="106" text-anchor="middle">案件作成メール</text>
+  <text class="d-text" x="84" y="123" text-anchor="middle">（1通目）が届く</text>
+
+  <rect class="d-box" x="170" y="82" width="120" height="56" rx="8"/>
+  <text class="d-text" x="230" y="106" text-anchor="middle">受付簿に自動登録</text>
+  <text class="d-text" x="230" y="123" text-anchor="middle">状態: 受付</text>
+
+  <rect class="d-box" x="316" y="82" width="120" height="56" rx="8"/>
+  <text class="d-text" x="376" y="106" text-anchor="middle">書類が届く</text>
+  <text class="d-text" x="376" y="123" text-anchor="middle">ボタンで日付記録</text>
+
+  <rect class="d-box" x="462" y="82" width="120" height="56" rx="8"/>
+  <text class="d-text" x="522" y="106" text-anchor="middle">担当者がWEB上で</text>
+  <text class="d-text" x="522" y="123" text-anchor="middle">処理する</text>
+
+  <rect class="d-box" x="608" y="82" width="120" height="56" rx="8"/>
+  <text class="d-text" x="668" y="106" text-anchor="middle">処理完了メール</text>
+  <text class="d-text" x="668" y="123" text-anchor="middle">（2通目）が届く</text>
+
+  <rect class="d-done" x="608" y="202" width="120" height="56" rx="8"/>
+  <text class="d-text d-strong" x="668" y="226" text-anchor="middle">処理済に自動更新</text>
+  <text class="d-text" x="668" y="243" text-anchor="middle">状態: 処理済</text>
+
+  <rect class="d-warn" x="170" y="202" width="120" height="56" rx="8"/>
+  <text class="d-text" x="230" y="226" text-anchor="middle">書類が未着のまま</text>
+  <text class="d-text" x="230" y="243" text-anchor="middle">7日以上で警告</text>
+
+  <rect class="d-warn" x="462" y="202" width="120" height="56" rx="8"/>
+  <text class="d-text" x="522" y="226" text-anchor="middle">WEB処理が進まず</text>
+  <text class="d-text" x="522" y="243" text-anchor="middle">到着から3日以上</text>
+
+  <rect class="d-warn" x="266" y="302" width="220" height="56" rx="8"/>
+  <text class="d-text" x="376" y="326" text-anchor="middle">画面を赤く表示し、</text>
+  <text class="d-text" x="376" y="343" text-anchor="middle">管理職へ自動メール</text>
+</svg>
+<figcaption>業務フロー · 6ステップ、警告2系統</figcaption>
+</figure>
+
+<p>書類が届かないまま7日たった場合と、書類が届いてからWEB処理が3日たっても進まない場合に、アプリは警告を出し、管理職へメールを送る。</p>
+
+<h2>3. 機能要件</h2>
+<p>アプリは次の8機能を持つ。</p>
+<table>
+  <thead>
+    <tr><th>ID</th><th>機能</th><th>内容</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>F1</td><td>受付簿の自動作成</td><td>起動時と定期的に、指定したOutlookフォルダを読み取る。案件作成メールから案件番号・会社名・受信日を取り込み、受付簿に登録する。同じ案件番号は重複登録しない。</td></tr>
+    <tr><td>F2</td><td>書類到着の記録</td><td>「書類が届いた」ボタンで書類到着日を記録する。日付の初期値は当日で、変更できる。押し間違えは取り消せる。</td></tr>
+    <tr><td>F3</td><td>処理済の自動判定</td><td>処理完了メール（件名「アクサ生命：特退金制度申し込み」）の案件番号を受付簿と突き合わせ、処理済日を記録して状態を処理済にする。</td></tr>
+    <tr><td>F4</td><td>警告表示</td><td>基準日数を超えた案件を一覧で赤く表示し、画面上部に警告件数を出す。</td></tr>
+    <tr><td>F5</td><td>管理職への自動メール</td><td>警告対象の案件をまとめ、設定画面に登録した管理職2名の宛先へ自動送信する。同じ案件・同じ種類の通知は1日1回まで。</td></tr>
+    <tr><td>F6</td><td>手動操作</td><td>案件の手動追加、備考の編集、処理済の手動変更（メールを取り込めなかった場合の予備）。</td></tr>
+    <tr><td>F7</td><td>設定</td><td>接続情報、案件メールを入れるOutlookのフォルダ名、判定キーワード、管理職2名の宛先、基準日数、同期間隔、通知のオン・オフ。</td></tr>
+    <tr><td>F8</td><td>自動起動</td><td>Windowsへのサインイン時に自動で起動し、常駐する（7章）。</td></tr>
+  </tbody>
+</table>
+
+<h2>4. 状態遷移と警告ルール</h2>
+<p>案件は「受付 → 書類到着 → 処理済」の順に進み、未着7日・未処理3日を超えると警告になる（日数は設定で変更できる）。</p>
+<table>
+  <thead>
+    <tr><th>状態</th><th>入る条件</th><th>次に進める操作</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>受付</td><td>案件作成メールを取り込んだ</td><td>「書類が届いた」ボタン</td></tr>
+    <tr><td>書類到着</td><td>ボタンで書類到着日を記録した</td><td>処理完了メールの取り込み</td></tr>
+    <tr><td>処理済</td><td>処理完了メールの案件番号が一致した</td><td>なし</td></tr>
+  </tbody>
+</table>
+<table>
+  <thead>
+    <tr><th>警告の種類</th><th>条件</th><th>初期値</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>書類未着</td><td>状態が受付で、受付日から基準日数以上たった</td><td>7日</td></tr>
+    <tr><td>未処理</td><td>状態が書類到着で、書類到着日から基準日数以上たった</td><td>3日</td></tr>
+  </tbody>
+</table>
+<ul>
+  <li>日数は営業日（土日・祝日を除く）で数える。</li>
+  <li>管理職への通知は、1案件・1種類につき1日1回まで。書類到着か処理済で警告が解消するまで、翌日以降も送る。</li>
+  <li>処理完了メールが書類到着ボタンより先に届いた場合は、書類到着日を空のまま処理済にする。</li>
+  <li>処理完了メールの案件番号が受付簿にない場合は、備考に「受付メール未確認」と付けて処理済で登録する。</li>
+</ul>
+
+<h2>5. データ項目</h2>
+<p>受付簿は案件番号を主キーとし、脱退事由（退職・死亡）は持たない。</p>
+<table>
+  <thead>
+    <tr><th>項目</th><th>内容</th><th>入力元</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>案件番号</td><td>例: T261110500002789。案件作成メールと処理完了メールで同じ番号になる</td><td>メール</td></tr>
+    <tr><td>会社名</td><td>例: スズカン株式会社。画面で修正できる</td><td>メール本文の宛名</td></tr>
+    <tr><td>受付日</td><td>案件作成メールの受信日</td><td>メール</td></tr>
+    <tr><td>書類到着日</td><td>書類が届いた日</td><td>ボタン</td></tr>
+    <tr><td>処理済日</td><td>処理完了メールの受信日</td><td>メール</td></tr>
+    <tr><td>状態</td><td>受付・書類到着・処理済。日付の有無から決まる</td><td>自動</td></tr>
+    <tr><td>備考</td><td>自由記入</td><td>手動</td></tr>
+  </tbody>
+</table>
+<p>このほか、取り込み済みメールの記録（メールID・種別・案件番号）と、通知履歴（案件番号・警告の種類・通知日）を保存する。どちらも二重取り込みと二重通知の防止に使う。</p>
+
+<h2>6. メール連携仕様</h2>
+<p>メールはMicrosoft Graph APIで読み取り、管理職への通知も同じ接続で自動送信する。</p>
+<ul>
+  <li>接続: 議員メール配信アプリと同じEntraアプリ登録（テナントID・クライアントID）を共用し、利用者の委任権限（Mail.Read、Mail.Send）で接続する。サインインは初回だけで、以降は暗号化して保存したトークンを更新して使う。</li>
+  <li>読み取り対象: 設定画面に入力したOutlookのフォルダ名。受信トレイの下などのサブフォルダでも、名前から自動で探す（議員メール配信アプリと同じ方式）。見つからないときは画面に表示する。</li>
+  <li>初回の取り込み範囲は過去60日（設定で変更可）。以降は前回の同期から1日さかのぼって取得する。</li>
+  <li>同じメールを2回処理しない（メールIDを記録）。</li>
+</ul>
+<table>
+  <thead>
+    <tr><th>種別</th><th>件名の判定</th><th>本文から取る項目</th><th>受付簿への反映</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>案件作成</td><td>「特退金脱退案件作成」を含む（空白は無視）</td><td>案件番号、会社名</td><td>新規登録（状態: 受付）</td></tr>
+    <tr><td>処理完了</td><td>「特退金制度申し込み」を含む</td><td>案件番号</td><td>処理済に更新</td></tr>
+  </tbody>
+</table>
+<ul>
+  <li>案件番号: 本文の「案件番号：」の後ろにある、英字1文字と数字の並び（例: T261110500002789）。</li>
+  <li>会社名: 案件作成メールの「上記書類を○○様へ」の○○を宛名として取り、半角カナを全角に直して、法人略称を正式名称に読み替える（例: ｽｽﾞｶﾝ (ｶ → スズカン株式会社）。</li>
+  <li>法人略称は、全銀の法人略語に準じた対応表（12章）で読み替える。略称の付く位置は3通りに対応する。先頭は「カ）○○」で、正式名称を前に付ける（株式会社○○）。途中は「○○（カ）△△」で、その場で置き換える（○○株式会社△△）。末尾は「○○（カ」で、正式名称を後ろに付ける（○○株式会社）。末尾の形は、閉じ括弧がないことがある。</li>
+  <li>照合は、長い略称を先に行う（例:「シホウ」を「シ」より先に）。小さい「ャ・ュ・ョ・ッ」は大きい字に直してから照合する。</li>
+  <li>複数の法人格に当たる略称（イ・ザイ・シヤ・チユウ・ダイ）は、12章の表の先頭の法人格で読み替え、備考に「法人格は略称から推定（要確認）」と付ける。</li>
+  <li>対応表にない略称は、そのまま残し、備考に「法人略称が未登録（要確認）」と付ける。取れない場合は空欄にする。どちらも画面で修正できる。</li>
+  <li>対応表はデータファイルで持ち、略称を後から追加・修正できる。</li>
+  <li>脱退事由は取り込まない。</li>
+</ul>
+
+<h2>7. 自動起動仕様</h2>
+<p>Windowsにサインインすると自動で起動し、タスクトレイに常駐して、人が操作しなくても取り込み・判定・通知を続ける。</p>
+<ul>
+  <li>登録: 初回起動時にスタートアップへ登録する。設定画面のスイッチで、登録と解除を切り替えられる。</li>
+  <li>起動時の動作: 最小化した状態で起動する。起動直後に「メール取り込み → 警告判定 → 管理職への通知」を1回実行する。</li>
+  <li>定期実行: 起動後は設定した間隔（初期値30分）で同じ処理を繰り返す。</li>
+  <li>常駐: ウィンドウを閉じてもアプリは終了しない。終了は、トレイのアイコンの右クリックから行う。</li>
+  <li>警告の知らせ: 警告があるとトレイのアイコンの色を変え、新しい警告が出たときにポップアップで知らせる。</li>
+  <li>二重起動の防止: すでに起動中なら新しく起動せず、既存の画面を前面に出す。</li>
+  <li>取りこぼし対策: PCの停止中に届いたメールは、次の起動時に前回同期以降の分をまとめて取り込む。通知履歴を保存するので、再起動しても同じ通知を重ねて送らない。</li>
+  <li>前提: メールの取り込みも警告メールの送信もアプリ自身が行うが、動くのはアプリが起動しているPCの上だけ。日数は営業日で数えるので、PCは平日の業務時間中に起動していれば足り、夜間・休日の常時稼働は要らない。停止中にたまった分は、次の起動時にまとめて処理して送る。</li>
+</ul>
+
+<h2>8. 画面仕様</h2>
+<p>画面は受付簿の一覧を中心にした1画面と、設定画面の2つ。</p>
+<p class="label">受付簿の画面</p>
+<ul>
+  <li>上部のバナー: 「警告 N 件」を赤で、警告がなければ「警告なし」を緑で表示する。</li>
+  <li>絞り込み: 未完了のみ・すべて・警告のみ。案件番号と会社名で検索できる。</li>
+  <li>一覧の列: 状態、警告、案件番号、会社名、受付日、書類到着日、処理済日、経過日数、備考。</li>
+  <li>色: 警告の行は赤い背景、処理済の行は灰色の文字。</li>
+  <li>ボタン: 「書類が届いた」「到着を取り消す」「今すぐ更新」「案件を追加」「備考を編集」「設定」。</li>
+  <li>「書類が届いた」: 一覧で案件を選んで押すと、日付の確認画面が開く。初期値は当日。</li>
+  <li>下部のステータスバー: 最終更新の時刻、新規の件数、処理済の件数、送った通知の件数。</li>
+</ul>
+<p class="label">設定画面</p>
+<ul>
+  <li>接続: テナントID、クライアントID（議員メール配信アプリと同じ値）、案件メールを入れるOutlookのフォルダ名。</li>
+  <li>判定: 案件作成メールと処理完了メールの件名キーワード。</li>
+  <li>警告: 未着の基準日数、未処理の基準日数。</li>
+  <li>通知: 警告メールの宛先（管理職1・管理職2の2欄）、通知のオン・オフ。</li>
+  <li>動作: 同期の間隔、初回の取り込み日数、Windows起動時の自動起動。</li>
+  <li>「接続テスト」ボタン: サインインと対象フォルダの検索を試し、結果を表示する。</li>
+</ul>
+
+<h2>9. 非機能要件とセキュリティ</h2>
+<p>アプリが触れるのは指定フォルダのメールと、管理職への通知メールの送信だけにする。</p>
+<ul>
+  <li>権限: Microsoft Graphの委任権限は、メールの読み取り（Mail.Read）と送信（Mail.Send）の2つ。議員メール配信アプリがすでに同じ2つの権限を使っているため、同じアプリ登録を共用すれば、新しい登録や管理者の同意は要らない見込み。</li>
+  <li>認証情報: パスワードは保存しない。サインイン後のトークンは、暗号化して利用者本人のフォルダに保存する（議員メール配信アプリと同じ方式）。</li>
+  <li>保存するデータ: 案件番号、会社名、各日付、備考。メール本文は保存しない。</li>
+  <li>通知先: 設定した管理職2名の宛先だけに送る。自動送信のため、宛先の設定は導入時に必ず確認する。</li>
+  <li>バックアップ: 1日1回、起動時にデータベースのコピーを保存する。</li>
+  <li>ログ: メールの取り込みと通知の成否をログファイルに残す。取り込みや送信に失敗したときは、画面にも表示する。</li>
+  <li>利用台数: アプリは担当者のPC1台にだけ入れ、「書類が届いた」ボタンもその担当者が押す。受付簿はそのPCに置く。複数のPCに入れると受付簿が別々になり、警告メールも重複するため、想定しない。</li>
+</ul>
+
+<h2>10. 技術構成と導入手順</h2>
+<p>Windows上で動くPythonのデスクトップアプリとして作る。</p>
+<table>
+  <thead>
+    <tr><th>項目</th><th>採用</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>言語</td><td>Python 3.11以上</td></tr>
+    <tr><td>画面</td><td>PyQt6（トレイ常駐を含む）</td></tr>
+    <tr><td>データベース</td><td>SQLite（SQLAlchemy経由）</td></tr>
+    <tr><td>メール連携</td><td>Microsoft Graph API（msal、msal-extensions、requests）。議員メール配信アプリと同じ構成</td></tr>
+    <tr><td>営業日の計算</td><td>jpholiday（日本の祝日）</td></tr>
+    <tr><td>配布</td><td>PyInstallerでexe化し、Inno Setupのインストーラーで配る（自動起動の登録を含む）</td></tr>
+  </tbody>
+</table>
+<p>導入手順は次の4つ。</p>
+<ol>
+  <li>議員メール配信アプリで使っているテナントIDとクライアントIDを確認する。新しいアプリ登録は作らず、Mail.ReadとMail.Sendがすでに許可されていることを確かめる。</li>
+  <li>インストーラーでアプリを入れ、設定画面にテナントID、クライアントID、Outlookのフォルダ名、管理職2名の宛先を入れる。</li>
+  <li>「接続テスト」でサインインし、対象フォルダが見つかることを確認する。</li>
+  <li>自動起動のスイッチをオンにし、Windowsを再サインインして、トレイに常駐することを確認する。</li>
+</ol>
+
+<h2>11. 決定事項・確認事項</h2>
+<p>決まったことと、導入前に確認することを分けて書く。</p>
+<p class="label">決まったこと</p>
+<ul>
+  <li>日数は営業日で数える。</li>
+  <li>警告メールの宛先は管理職2名で、設定画面に入力する。</li>
+  <li>案件メールを入れるOutlookのフォルダ名は、設定画面で入力する。</li>
+  <li>Entra IDは、議員メール配信アプリと同じアプリ登録（テナントID・クライアントID）を共用する。</li>
+  <li>アプリは担当者のPC1台に入れ、「書類が届いた」ボタンもその担当者が押す。</li>
+  <li>会社名の法人略称は、全銀の法人略語に準じた対応表で読み替える（12章）。</li>
+</ul>
+<p class="label">導入前に確認すること</p>
+<ul class="checks">
+  <li><input type="checkbox" id="c1"><label for="c1">管理職2名のメールアドレス</label></li>
+  <li><input type="checkbox" id="c2"><label for="c2">案件メールが入るOutlookのフォルダ名</label></li>
+  <li><input type="checkbox" id="c3"><label for="c3">議員メール配信アプリのクライアントIDで、Mail.ReadとMail.Sendが許可済みであること（出欠メールの読み取りと送信で使っているため、確認だけで済む見込み）</label></li>
+  <li><input type="checkbox" id="c4"><label for="c4">担当者のPCが、平日の業務時間中は起動していること</label></li>
+</ul>
+
+<h2>12. 付録: 法人略称の対応表</h2>
+<p>会社名の読み替えに使う略称の一覧。略称はカナの大きい字で書いた形で、実際のメールでは「カ）」「（カ）」「（カ」のように括弧が付く。出典は、全銀の法人略語を載せた<a href="https://www.smbc.co.jp/direct/help_furikomi/15.html">三井住友銀行の一覧</a>と<a href="https://www.gaitame.com/account/zengin.html">外為どっとコムの一覧</a>で、2つを突き合わせた。</p>
+<table>
+  <thead>
+    <tr><th>区分</th><th>略称</th><th>正式名称</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>法人</td><td>カ</td><td>株式会社</td></tr>
+    <tr><td>法人</td><td>ユ</td><td>有限会社</td></tr>
+    <tr><td>法人</td><td>メ</td><td>合名会社</td></tr>
+    <tr><td>法人</td><td>シ</td><td>合資会社</td></tr>
+    <tr><td>法人</td><td>ド</td><td>合同会社</td></tr>
+    <tr><td>法人</td><td>ソ</td><td>相互会社</td></tr>
+    <tr><td>法人</td><td>イ</td><td>医療法人（医療法人社団・医療法人財団・社会医療法人にも使う。複数に当たる）</td></tr>
+    <tr><td>法人</td><td>ザイ</td><td>一般財団法人（公益財団法人にも使う。複数に当たる）</td></tr>
+    <tr><td>法人</td><td>シヤ</td><td>一般社団法人（公益社団法人にも使う。複数に当たる）</td></tr>
+    <tr><td>法人</td><td>シユウ</td><td>宗教法人</td></tr>
+    <tr><td>法人</td><td>ガク</td><td>学校法人</td></tr>
+    <tr><td>法人</td><td>フク</td><td>社会福祉法人</td></tr>
+    <tr><td>法人</td><td>ホゴ</td><td>更生保護法人</td></tr>
+    <tr><td>法人</td><td>トクヒ</td><td>特定非営利活動法人</td></tr>
+    <tr><td>法人</td><td>ドク</td><td>独立行政法人</td></tr>
+    <tr><td>法人</td><td>チドク</td><td>地方独立行政法人</td></tr>
+    <tr><td>法人</td><td>ベン</td><td>弁護士法人</td></tr>
+    <tr><td>法人</td><td>チユウ</td><td>有限責任中間法人（無限責任中間法人にも使う。複数に当たる）</td></tr>
+    <tr><td>法人</td><td>ギヨ</td><td>行政書士法人</td></tr>
+    <tr><td>法人</td><td>シホウ</td><td>司法書士法人</td></tr>
+    <tr><td>法人</td><td>ゼイ</td><td>税理士法人</td></tr>
+    <tr><td>法人</td><td>ダイ</td><td>国立大学法人（公立大学法人にも使う。複数に当たる）</td></tr>
+    <tr><td>法人</td><td>ノウ</td><td>農事組合法人</td></tr>
+    <tr><td>法人</td><td>カンリ</td><td>管理組合法人</td></tr>
+    <tr><td>法人</td><td>ロウム</td><td>社会保険労務士法人</td></tr>
+    <tr><td>法人</td><td>モク</td><td>中期目標管理法人</td></tr>
+    <tr><td>法人</td><td>ケン</td><td>国立研究開発法人</td></tr>
+    <tr><td>法人</td><td>シツ</td><td>行政執行法人</td></tr>
+    <tr><td>営業所</td><td>エイ</td><td>営業所</td></tr>
+    <tr><td>営業所</td><td>シユツ</td><td>出張所</td></tr>
+    <tr><td>事業</td><td>レン</td><td>連合会</td></tr>
+    <tr><td>事業</td><td>キヨウサイ</td><td>共済組合</td></tr>
+    <tr><td>事業</td><td>キヨウクミ</td><td>協同組合</td></tr>
+    <tr><td>事業</td><td>セイメイ</td><td>生命保険</td></tr>
+    <tr><td>事業</td><td>カイジヨウ</td><td>海上火災保険</td></tr>
+    <tr><td>事業</td><td>カサイ</td><td>火災海上保険</td></tr>
+    <tr><td>事業</td><td>ケンポ</td><td>健康保険組合</td></tr>
+    <tr><td>事業</td><td>コクホ</td><td>国民健康保険組合</td></tr>
+    <tr><td>事業</td><td>コクホレン</td><td>国民健康保険団体連合会</td></tr>
+    <tr><td>事業</td><td>シヤホ</td><td>社会保険診療報酬支払基金</td></tr>
+    <tr><td>事業</td><td>コウネン</td><td>厚生年金基金</td></tr>
+    <tr><td>事業</td><td>ジユウクミ</td><td>従業員組合</td></tr>
+    <tr><td>事業</td><td>ロウクミ</td><td>労働組合</td></tr>
+    <tr><td>事業</td><td>セイキヨウ</td><td>生活協同組合</td></tr>
+    <tr><td>事業</td><td>シヨクハンキヨウ</td><td>食糧販売協同組合</td></tr>
+    <tr><td>事業</td><td>コクキヨウレン</td><td>国家公務員共済組合連合会</td></tr>
+    <tr><td>事業</td><td>ノウキヨウレン</td><td>農業協同組合連合会</td></tr>
+    <tr><td>事業</td><td>ケイザイレン</td><td>経済農業協同組合連合会</td></tr>
+    <tr><td>事業</td><td>キヨウサイレン</td><td>共済農業協同組合連合会</td></tr>
+    <tr><td>事業</td><td>ギヨキヨウ</td><td>漁業協同組合</td></tr>
+    <tr><td>事業</td><td>ギヨレン</td><td>漁業協同組合連合会</td></tr>
+    <tr><td>事業</td><td>シヨクアン</td><td>公共職業安定所</td></tr>
+    <tr><td>事業</td><td>シヤキヨウ</td><td>社会福祉協議会</td></tr>
+    <tr><td>事業</td><td>トクヨウ</td><td>特別養護老人ホーム</td></tr>
+    <tr><td>事業</td><td>ユウクミ</td><td>有限責任事業組合</td></tr>
+  </tbody>
+</table>
+
+</main>
+</body>
+</html>
