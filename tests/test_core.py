@@ -138,3 +138,20 @@ def test_record_defect_keeps_original_date():
     service.record_defect(c, date(2026, 11, 9))
     assert c.docs_date is None and c.defect_date == date(2026, 11, 9)
     assert "元の書類到着日 2026-11-05" in c.note and "メモ" in c.note
+
+
+def test_purge_old_done(tmp_path):
+    db.init(f"sqlite:///{tmp_path / 'p.db'}")
+    today = date(2026, 11, 12)
+    with db.session() as s:
+        s.add_all([
+            db.Case(case_no="OLD", done_date=date(2025, 11, 11)),     # 366日前: 削除
+            db.Case(case_no="EDGE", done_date=date(2025, 11, 12)),    # ちょうど365日前: 残す
+            db.Case(case_no="NEW", done_date=date(2026, 6, 1)),
+            db.Case(case_no="OPEN", received_date=date(2024, 1, 5)),  # 未完了は古くても残す
+        ])
+        s.commit()
+        assert service.purge_old_done(s, today) == 1
+        from sqlalchemy import select
+        left = {c.case_no for c in s.scalars(select(db.Case))}
+    assert left == {"EDGE", "NEW", "OPEN"}

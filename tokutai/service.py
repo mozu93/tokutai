@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Protocol
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from . import db
@@ -22,6 +22,7 @@ ALERT_DOCS = "書類未着"
 ALERT_PROCESS = "未処理"
 ALERT_DEFECT = "補正未着"
 NOTE_UNSEEN = "受付メール未確認"
+RETENTION_DAYS = 365  # 処理済の案件を残す期間
 
 
 # ---------- 警告判定 ----------
@@ -158,6 +159,19 @@ def import_mails(s: Session, st: Settings, source: MailSource, norm: CompanyNorm
     s.commit()
 
 
+# ---------- 保存期間 ----------
+def purge_old_done(s: Session, today: date) -> int:
+    """処理済日から1年（365日）をすぎた案件を削除する。未完了の案件は消さない。"""
+    cutoff = today - timedelta(days=RETENTION_DAYS)
+    nos = list(s.scalars(select(Case.case_no).where(Case.done_date.is_not(None), Case.done_date < cutoff)))
+    if nos:
+        s.execute(delete(NotifyLog).where(NotifyLog.case_no.in_(nos)))
+        s.execute(delete(Case).where(Case.case_no.in_(nos)))
+        s.commit()
+        log.info("保存期間（%d日）をすぎた処理済の案件を削除: %d件", RETENTION_DAYS, len(nos))
+    return len(nos)
+
+
 # ---------- 通知 ----------
 def build_notice(alerts: list[Alert], st: Settings) -> tuple[str, str]:
     lines = [f"特退金脱退案件で、期限を過ぎた案件が{len(alerts)}件あります。", ""]
@@ -214,6 +228,11 @@ def run_sync(st: Settings, client, norm: CompanyNormalizer, interactive: bool = 
             s.rollback()
             res.errors.append(f"メール取り込みに失敗: {e}")
             log.exception("メール取り込み失敗")
+        try:
+            purge_old_done(s, today)
+        except Exception:  # noqa: BLE001
+            s.rollback()
+            log.exception("古い処理済案件の削除に失敗")
         try:
             notify_managers(s, st, client, today, res)
         except Exception as e:  # noqa: BLE001
