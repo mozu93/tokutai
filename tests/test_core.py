@@ -131,3 +131,10 @@ def test_migrate_old_db(tmp_path):
     db.init(f"sqlite:///{p}")
     with db.session() as s:
         assert s.get(db.Case, "X1").defect_date is None
+
+
+def test_record_defect_keeps_original_date():
+    c = db.Case(case_no="T3", received_date=date(2026, 11, 2), docs_date=date(2026, 11, 5), note="メモ")
+    service.record_defect(c, date(2026, 11, 9))
+    assert c.docs_date is None and c.defect_date == date(2026, 11, 9)
+    assert "元の書類到着日 2026-11-05" in c.note and "メモ" in c.note

@@ -363,10 +363,7 @@ class MainWindow(QMainWindow):
                 return
         dlg = DateDialog("不備を連絡した", "不備を相手に連絡した日", self)
         if dlg.exec():
-            def f(c):
-                c.defect_date = dlg.value()
-                c.docs_date = None  # 補正書類が届くまで、書類は揃っていない扱い
-            self._update_case(no, f)
+            self._update_case(no, lambda c: service.record_defect(c, dlg.value()))
 
     def cancel_defect(self) -> None:
         no = self._selected_no()

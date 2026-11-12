@@ -87,6 +87,14 @@ def _append_note(c: Case, note: str) -> None:
         c.note = f"{c.note}　{note}".strip() if c.note else note
 
 
+def record_defect(c: Case, defect_date: date) -> None:
+    """不備を連絡した日を記録する。元の書類到着日は備考に残す。"""
+    if c.docs_date:
+        _append_note(c, f"元の書類到着日 {c.docs_date:%Y-%m-%d}")
+    c.defect_date = defect_date
+    c.docs_date = None  # 補正書類が届くまで、書類は揃っていない扱い
+
+
 def apply_mail(s: Session, norm: CompanyNormalizer, kind: str, case_no: str, company_raw: str,
                recv: date, res: SyncResult) -> None:
     c = s.get(Case, case_no)
