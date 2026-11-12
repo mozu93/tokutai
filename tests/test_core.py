@@ -155,3 +155,36 @@ def test_purge_old_done(tmp_path):
         from sqlalchemy import select
         left = {c.case_no for c in s.scalars(select(db.Case))}
     assert left == {"EDGE", "NEW", "OPEN"}
+
+
+def _cases_for_view():
+    return [
+        db.Case(case_no="A1", company="あ商事", received_date=date(2026, 11, 2), note="元の書類到着日 2026-11-05"),
+        db.Case(case_no="A2", company="い工業", received_date=date(2026, 11, 4), defect_date=date(2026, 11, 6)),
+        db.Case(case_no="A3", company="う運輸", received_date=date(2026, 10, 1), done_date=date(2026, 10, 9)),
+        db.Case(case_no="A4", company="", received_date=None, docs_date=date(2026, 11, 9)),
+    ]
+
+
+def _nos(rows):
+    return [c.case_no for c in rows]
+
+
+def test_select_filters():
+    cs, today = _cases_for_view(), date(2026, 11, 12)
+    sel = lambda mode, q="", col="", asc=True: _nos(service.select_rows(cs, {}, mode, q, col, asc, today))
+    assert set(sel("未完了のみ")) == {"A1", "A2", "A4"}
+    assert set(sel("すべて")) == {"A1", "A2", "A3", "A4"}
+    assert sel("不備のみ") == ["A2"]
+    # 検索は備考も対象。検索中は「未完了のみ」でも処理済を探せる
+    assert sel("未完了のみ", "元の書類") == ["A1"]
+    assert sel("未完了のみ", "う運輸") == ["A3"]
+
+
+def test_select_sort_puts_empty_last():
+    cs, today = _cases_for_view(), date(2026, 11, 12)
+    sel = lambda col, asc: _nos(service.select_rows(cs, {}, "すべて", "", col, asc, today))
+    assert sel("受付日", True) == ["A3", "A1", "A2", "A4"]   # 空のA4は最後
+    assert sel("受付日", False) == ["A2", "A1", "A3", "A4"]  # 降順でも空は最後
+    assert sel("案件番号", False) == ["A4", "A3", "A2", "A1"]
+    assert sel("状態", True) == ["A1", "A2", "A4", "A3"]     # 受付 → 不備 → 書類到着 → 処理済

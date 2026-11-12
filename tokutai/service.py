@@ -69,6 +69,70 @@ def collect_alerts(cases: list[Case], today: date, s: Settings) -> list[Alert]:
     return out
 
 
+# ---------- 一覧の絞り込みと並び替え ----------
+FILTER_OPEN = "未完了のみ"
+FILTER_ALL = "すべて"
+FILTER_ALERT = "警告のみ"
+FILTER_DEFECT = "不備のみ"
+FILTERS = [FILTER_OPEN, FILTER_ALL, FILTER_ALERT, FILTER_DEFECT]
+
+_STATUS_ORDER = {db.STATUS_RECEIVED: 0, db.STATUS_DEFECT: 1, db.STATUS_ARRIVED: 2, db.STATUS_DONE: 3}
+
+
+def _sort_value(col: str, c: Case, alert: Alert | None, today: date):
+    """列ごとの並び替え値。空（None）は、昇順でも降順でも最後に回す。"""
+    if col == "状態":
+        return _STATUS_ORDER[c.status]
+    if col == "警告":
+        return alert.kind if alert else None
+    if col == "案件番号":
+        return c.case_no
+    if col == "会社名":
+        return c.company or None
+    if col == "受付日":
+        return c.received_date
+    if col == "不備連絡日":
+        return c.defect_date
+    if col == "書類到着日":
+        return c.docs_date
+    if col == "処理済日":
+        return c.done_date
+    if col == "経過日数":
+        return elapsed_days(c, today)
+    if col == "備考":
+        return c.note or None
+    return None
+
+
+def select_rows(cases: list[Case], alerts: dict[str, Alert], mode: str, query: str,
+                sort_col: str, ascending: bool, today: date) -> list[Case]:
+    """絞り込み・検索・並び替えをした案件の一覧を返す。
+
+    検索語があるときは「未完了のみ」を無視して、処理済も探す（探し漏れ防止）。
+    検索は案件番号・会社名・備考が対象。
+    """
+    q = (query or "").strip().lower()
+    rows = []
+    for c in cases:
+        if mode == FILTER_OPEN and not q and c.done_date:
+            continue
+        if mode == FILTER_ALERT and c.case_no not in alerts:
+            continue
+        if mode == FILTER_DEFECT and c.status != db.STATUS_DEFECT:
+            continue
+        if q and not any(q in (v or "").lower() for v in (c.case_no, c.company, c.note)):
+            continue
+        rows.append(c)
+    if sort_col:
+        filled = [(c, _sort_value(sort_col, c, alerts.get(c.case_no), today)) for c in rows]
+        have = sorted((x for x in filled if x[1] is not None), key=lambda x: (x[1], x[0].case_no),
+                      reverse=not ascending)
+        rows = [c for c, _ in have] + [c for c, v in filled if v is None]
+    else:  # 標準: 警告 → 未完了 → 処理済、受付日の古い順
+        rows.sort(key=lambda c: (c.case_no not in alerts, c.done_date is not None, c.received_date or date.min))
+    return rows
+
+
 # ---------- 取り込み ----------
 class MailSource(Protocol):
     def fetch_messages(self, folder_id: str, since: datetime, interactive: bool = ...) -> list: ...

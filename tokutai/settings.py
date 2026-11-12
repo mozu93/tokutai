@@ -23,6 +23,9 @@ class Settings:
     initial_days: int = 60
     autostart: bool = True
     autostart_initialized: bool = False
+    view_filter: str = "未完了のみ"  # 一覧の絞り込み（再起動後も覚える）
+    sort_column: str = ""  # 並び替えの列名。空は標準の順
+    sort_ascending: bool = True
 
     def managers(self) -> list[str]:
         return [m.strip() for m in self.manager_emails if m and m.strip()]

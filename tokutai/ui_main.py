@@ -140,10 +140,12 @@ class MainWindow(QMainWindow):
 
         top = QHBoxLayout()
         self.filter = QComboBox()
-        self.filter.addItems(["未完了のみ", "すべて", "警告のみ"])
-        self.filter.currentIndexChanged.connect(self.reload)
+        self.filter.addItems(service.FILTERS)
+        if self.st.view_filter in service.FILTERS:
+            self.filter.setCurrentText(self.st.view_filter)
+        self.filter.currentIndexChanged.connect(self._filter_changed)
         self.search = QLineEdit()
-        self.search.setPlaceholderText("案件番号・会社名で検索")
+        self.search.setPlaceholderText("案件番号・会社名・備考で検索（検索中は処理済も表示）")
         self.search.textChanged.connect(self.reload)
         top.addWidget(QLabel("表示:"))
         top.addWidget(self.filter)
@@ -155,7 +157,11 @@ class MainWindow(QMainWindow):
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.horizontalHeader().setStretchLastSection(True)
+        hh = self.table.horizontalHeader()
+        hh.setStretchLastSection(True)
+        hh.setSectionsClickable(True)
+        hh.sectionClicked.connect(self._header_clicked)
+        self._show_sort_indicator()
         self.table.setColumnWidth(3, 240)
         self.table.setColumnWidth(2, 160)
         v.addWidget(self.table, 1)
@@ -230,17 +236,8 @@ class MainWindow(QMainWindow):
         with db.session() as s:
             cases = list(s.scalars(select(Case)))
         alerts = {a.case_no: a for a in service.collect_alerts(cases, today, self.st)}
-        mode, q = self.filter.currentText(), self.search.text().strip().lower()
-        rows = []
-        for c in cases:
-            if mode == "未完了のみ" and c.done_date:
-                continue
-            if mode == "警告のみ" and c.case_no not in alerts:
-                continue
-            if q and q not in c.case_no.lower() and q not in (c.company or "").lower():
-                continue
-            rows.append(c)
-        rows.sort(key=lambda c: (c.case_no not in alerts, c.done_date is not None, c.received_date or date.min))
+        rows = service.select_rows(cases, alerts, self.filter.currentText(), self.search.text(),
+                                   self.st.sort_column, self.st.sort_ascending, today)
         self.table.setRowCount(len(rows))
         for i, c in enumerate(rows):
             a = alerts.get(c.case_no)
@@ -265,6 +262,34 @@ class MainWindow(QMainWindow):
         self.tray.setIcon(self.icon_warn if alerts else self.icon_ok)
         self._popup_new_alerts(alerts)
         self._update_status()
+
+    def _filter_changed(self, *_args) -> None:
+        self.st.view_filter = self.filter.currentText()
+        settings_mod.save(self.st)
+        self.reload()
+
+    def _header_clicked(self, col: int) -> None:
+        """見出しのクリックで、昇順 → 降順 → 標準の順に切り替える。"""
+        name = COLUMNS[col]
+        if self.st.sort_column != name:
+            self.st.sort_column, self.st.sort_ascending = name, True
+        elif self.st.sort_ascending:
+            self.st.sort_ascending = False
+        else:
+            self.st.sort_column, self.st.sort_ascending = "", True
+        settings_mod.save(self.st)
+        self._show_sort_indicator()
+        self.reload()
+
+    def _show_sort_indicator(self) -> None:
+        hh = self.table.horizontalHeader()
+        if self.st.sort_column in COLUMNS:
+            order = (Qt.SortOrder.AscendingOrder if self.st.sort_ascending
+                     else Qt.SortOrder.DescendingOrder)
+            hh.setSortIndicator(COLUMNS.index(self.st.sort_column), order)
+            hh.setSortIndicatorShown(True)
+        else:
+            hh.setSortIndicatorShown(False)
 
     def _popup_new_alerts(self, alerts: dict) -> None:
         keys = {(a.case_no, a.kind) for a in alerts.values()}
