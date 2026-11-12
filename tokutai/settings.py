@@ -16,6 +16,7 @@ class Settings:
     kw_done: str = "特退金制度申し込み"
     warn_docs_days: int = 7
     warn_process_days: int = 3
+    warn_defect_days: int = 7
     manager_emails: list[str] = field(default_factory=lambda: ["", ""])
     notify_enabled: bool = True
     sync_minutes: int = 30

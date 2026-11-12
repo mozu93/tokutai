@@ -20,6 +20,7 @@ log = logging.getLogger(__name__)
 
 ALERT_DOCS = "書類未着"
 ALERT_PROCESS = "未処理"
+ALERT_DEFECT = "補正未着"
 NOTE_UNSEEN = "受付メール未確認"
 
 
@@ -40,6 +41,10 @@ def alert_kind(c: Case, today: date, s: Settings) -> str | None:
         if business_days_between(c.docs_date, today) >= s.warn_process_days:
             return ALERT_PROCESS
         return None
+    if c.defect_date:
+        if business_days_between(c.defect_date, today) >= s.warn_defect_days:
+            return ALERT_DEFECT
+        return None
     if c.received_date and business_days_between(c.received_date, today) >= s.warn_docs_days:
         return ALERT_DOCS
     return None
@@ -49,7 +54,7 @@ def elapsed_days(c: Case, today: date) -> int | None:
     """状態ごとの経過営業日。受付→受付日から、書類到着→到着日から。処理済は空。"""
     if c.done_date:
         return None
-    base = c.docs_date or c.received_date
+    base = c.docs_date or c.defect_date or c.received_date
     return business_days_between(base, today) if base else None
 
 
@@ -58,7 +63,7 @@ def collect_alerts(cases: list[Case], today: date, s: Settings) -> list[Alert]:
     for c in cases:
         k = alert_kind(c, today, s)
         if k:
-            base = c.docs_date if k == ALERT_PROCESS else c.received_date
+            base = {ALERT_PROCESS: c.docs_date, ALERT_DEFECT: c.defect_date}.get(k, c.received_date)
             out.append(Alert(c.case_no, c.company, k, base, business_days_between(base, today)))  # type: ignore[arg-type]
     return out
 
@@ -150,6 +155,7 @@ def build_notice(alerts: list[Alert], st: Settings) -> tuple[str, str]:
     lines = [f"特退金脱退案件で、期限を過ぎた案件が{len(alerts)}件あります。", ""]
     for kind, title, days in (
         (ALERT_DOCS, "【書類未着】受付から", st.warn_docs_days),
+        (ALERT_DEFECT, "【補正書類未着】不備連絡から", st.warn_defect_days),
         (ALERT_PROCESS, "【WEB処理未完了】書類到着から", st.warn_process_days),
     ):
         group = [a for a in alerts if a.kind == kind]

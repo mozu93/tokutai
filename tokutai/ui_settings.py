@@ -25,6 +25,7 @@ class SettingsDialog(QDialog):
         self.kw_done = QLineEdit(s.kw_done)
         self.warn_docs = QSpinBox(); self.warn_docs.setRange(1, 60); self.warn_docs.setValue(s.warn_docs_days)
         self.warn_proc = QSpinBox(); self.warn_proc.setRange(1, 60); self.warn_proc.setValue(s.warn_process_days)
+        self.warn_defect = QSpinBox(); self.warn_defect.setRange(1, 60); self.warn_defect.setValue(s.warn_defect_days)
         self.mgr1 = QLineEdit(s.manager_emails[0])
         self.mgr2 = QLineEdit(s.manager_emails[1])
         self.notify = QCheckBox("管理職へ警告メールを自動送信する"); self.notify.setChecked(s.notify_enabled)
@@ -36,7 +37,8 @@ class SettingsDialog(QDialog):
         for title, rows in (
             ("接続", [("テナントID", self.tenant), ("クライアントID", self.client), ("Outlookのフォルダ名", self.folder)]),
             ("判定（件名キーワード）", [("案件作成メール", self.kw_create), ("処理完了メール", self.kw_done)]),
-            ("警告（営業日）", [("書類未着の基準日数", self.warn_docs), ("未処理の基準日数", self.warn_proc)]),
+            ("警告（営業日）", [("書類未着の基準日数", self.warn_docs), ("未処理の基準日数", self.warn_proc),
+                                  ("補正待ち（不備連絡後）の基準日数", self.warn_defect)]),
             ("通知", [("管理職1の宛先", self.mgr1), ("管理職2の宛先", self.mgr2), ("", self.notify)]),
             ("動作", [("同期の間隔", self.sync_min), ("初回の取り込み範囲", self.init_days), ("", self.auto)]),
         ):
@@ -67,6 +69,7 @@ class SettingsDialog(QDialog):
         s.folder_name = self.folder.text().strip()
         s.kw_create, s.kw_done = self.kw_create.text().strip(), self.kw_done.text().strip()
         s.warn_docs_days, s.warn_process_days = self.warn_docs.value(), self.warn_proc.value()
+        s.warn_defect_days = self.warn_defect.value()
         s.manager_emails = mails
         s.notify_enabled = self.notify.isChecked()
         s.sync_minutes, s.initial_days = self.sync_min.value(), self.init_days.value()

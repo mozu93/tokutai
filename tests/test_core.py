@@ -104,3 +104,30 @@ def test_process_alert():
     c = db.Case(case_no="T1", received_date=date(2026, 11, 2), docs_date=date(2026, 11, 9))
     assert service.alert_kind(c, date(2026, 11, 11), st) is None
     assert service.alert_kind(c, date(2026, 11, 12), st) == service.ALERT_PROCESS
+
+
+def test_defect_alert():
+    st = Settings()
+    c = db.Case(case_no="T2", received_date=date(2026, 11, 2), defect_date=date(2026, 11, 2))
+    assert c.status == db.STATUS_DEFECT
+    assert service.alert_kind(c, date(2026, 11, 11), st) is None  # 6営業日（11/3は祝日）
+    assert service.alert_kind(c, date(2026, 11, 12), st) == service.ALERT_DEFECT  # 7営業日
+    st.warn_defect_days = 3
+    assert service.alert_kind(c, date(2026, 11, 6), st) == service.ALERT_DEFECT
+    # 補正書類が届いたら、WEB処理の警告に切り替わる
+    c.defect_date, c.docs_date = None, date(2026, 11, 9)
+    assert c.status == db.STATUS_ARRIVED
+    assert service.alert_kind(c, date(2026, 11, 12), st) == service.ALERT_PROCESS
+
+
+def test_migrate_old_db(tmp_path):
+    import sqlite3
+    p = tmp_path / "old.db"
+    con = sqlite3.connect(p)
+    con.execute("CREATE TABLE cases (case_no VARCHAR(40) PRIMARY KEY, company VARCHAR(200), "
+                "received_date DATE, docs_date DATE, done_date DATE, note TEXT)")
+    con.execute("INSERT INTO cases (case_no, company, note) VALUES ('X1','a','')")
+    con.commit(); con.close()
+    db.init(f"sqlite:///{p}")
+    with db.session() as s:
+        assert s.get(db.Case, "X1").defect_date is None

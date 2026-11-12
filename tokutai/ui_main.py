@@ -23,7 +23,7 @@ from .ui_settings import SettingsDialog
 
 log = logging.getLogger(__name__)
 
-COLUMNS = ["状態", "警告", "案件番号", "会社名", "受付日", "書類到着日", "処理済日", "経過日数", "備考"]
+COLUMNS = ["状態", "警告", "案件番号", "会社名", "受付日", "不備連絡日", "書類到着日", "処理済日", "経過日数", "備考"]
 RED_BG = QColor(255, 205, 205)
 GRAY_FG = QColor(130, 130, 130)
 
@@ -163,6 +163,7 @@ class MainWindow(QMainWindow):
         btns = QHBoxLayout()
         for text, fn in (
             ("書類が届いた", self.mark_arrived), ("到着を取り消す", self.cancel_arrived),
+            ("不備を連絡した", self.mark_defect), ("不備を取り消す", self.cancel_defect),
             ("今すぐ更新", self.sync), ("案件を追加", self.add_case),
             ("会社名を編集", self.edit_company), ("備考を編集", self.edit_note),
             ("処理済を切替", self.toggle_done), ("設定", self.open_settings),
@@ -245,7 +246,7 @@ class MainWindow(QMainWindow):
             a = alerts.get(c.case_no)
             ed = service.elapsed_days(c, today)
             vals = [c.status, a.kind if a else "", c.case_no, c.company, _fmt(c.received_date),
-                    _fmt(c.docs_date), _fmt(c.done_date), "" if ed is None else str(ed), c.note]
+                    _fmt(c.defect_date), _fmt(c.docs_date), _fmt(c.done_date), "" if ed is None else str(ed), c.note]
             for j, val in enumerate(vals):
                 it = QTableWidgetItem(val)
                 if a:
@@ -341,13 +342,37 @@ class MainWindow(QMainWindow):
                 return
         dlg = DateDialog("書類が届いた", "書類到着日", self)
         if dlg.exec():
-            self._update_case(no, lambda c: setattr(c, "docs_date", dlg.value()))
+            def f(c):
+                c.docs_date = dlg.value()
+                c.defect_date = None  # 補正書類が届いたので不備は解消
+            self._update_case(no, f)
 
     def cancel_arrived(self) -> None:
         no = self._selected_no()
         if no and QMessageBox.question(self, "到着を取り消す", f"{no} の書類到着日を取り消しますか？") \
                 == QMessageBox.StandardButton.Yes:
             self._update_case(no, lambda c: setattr(c, "docs_date", None))
+
+    def mark_defect(self) -> None:
+        no = self._selected_no()
+        if not no:
+            return
+        with db.session() as s:
+            if s.get(Case, no).done_date:
+                QMessageBox.information(self, "不備を連絡した", "この案件はすでに処理済です。")
+                return
+        dlg = DateDialog("不備を連絡した", "不備を相手に連絡した日", self)
+        if dlg.exec():
+            def f(c):
+                c.defect_date = dlg.value()
+                c.docs_date = None  # 補正書類が届くまで、書類は揃っていない扱い
+            self._update_case(no, f)
+
+    def cancel_defect(self) -> None:
+        no = self._selected_no()
+        if no and QMessageBox.question(self, "不備を取り消す", f"{no} の不備連絡日を取り消しますか？") \
+                == QMessageBox.StandardButton.Yes:
+            self._update_case(no, lambda c: setattr(c, "defect_date", None))
 
     def toggle_done(self) -> None:
         no = self._selected_no()

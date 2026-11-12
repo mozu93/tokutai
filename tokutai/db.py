@@ -12,6 +12,7 @@ from . import paths
 STATUS_RECEIVED = "受付"
 STATUS_ARRIVED = "書類到着"
 STATUS_DONE = "処理済"
+STATUS_DEFECT = "不備（補正待ち）"
 
 
 class Base(DeclarativeBase):
@@ -25,6 +26,7 @@ class Case(Base):
     received_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     docs_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     done_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    defect_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     note: Mapped[str] = mapped_column(Text, default="")
 
     @property
@@ -33,6 +35,8 @@ class Case(Base):
             return STATUS_DONE
         if self.docs_date:
             return STATUS_ARRIVED
+        if self.defect_date:
+            return STATUS_DEFECT
         return STATUS_RECEIVED
 
 
@@ -62,10 +66,19 @@ _engine = None
 _factory: sessionmaker | None = None
 
 
+def _migrate(engine) -> None:
+    """既存のDBに、後から増えた列を足す。"""
+    with engine.begin() as conn:
+        cols = {r[1] for r in conn.exec_driver_sql("PRAGMA table_info(cases)")}
+        if "defect_date" not in cols:
+            conn.exec_driver_sql("ALTER TABLE cases ADD COLUMN defect_date DATE")
+
+
 def init(url: str | None = None) -> None:
     global _engine, _factory
     _engine = create_engine(url or f"sqlite:///{paths.db_path()}", future=True)
     Base.metadata.create_all(_engine)
+    _migrate(_engine)
     _factory = sessionmaker(_engine, expire_on_commit=False)
 
 
