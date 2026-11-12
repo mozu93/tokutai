@@ -52,7 +52,7 @@ def alert_kind(c: Case, today: date, s: Settings) -> str | None:
 
 
 def elapsed_days(c: Case, today: date) -> int | None:
-    """状態ごとの経過営業日。受付→案件作成日から、書類到着→到着日から。処理済は空。"""
+    """状態ごとの経過営業日。書類待ち→案件作成日から、書類到着→到着日から。処理済は空。"""
     if c.done_date:
         return None
     base = c.docs_date or c.defect_date or c.received_date

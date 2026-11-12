@@ -86,7 +86,7 @@ def test_sync_flow(tmp_path, monkeypatch, norm):
     assert (r.new_cases, r.done_cases, r.errors) == (2, 2, [])
     with db.session() as s:
         c1, c2, c9 = s.get(db.Case, "T1001"), s.get(db.Case, "T1002"), s.get(db.Case, "T9999")
-        assert c1.company == "スズカン株式会社" and c1.status == "受付"
+        assert c1.company == "スズカン株式会社" and c1.status == "書類待ち"
         assert c2.status == "処理済" and c9.note == service.NOTE_UNSEEN
         assert service.alert_kind(c1, date(2026, 11, 12), st) == service.ALERT_DOCS  # 7営業日
         assert service.alert_kind(c1, date(2026, 11, 10), st) is None
@@ -187,7 +187,7 @@ def test_select_sort_puts_empty_last():
     assert sel("案件作成日", True) == ["A3", "A1", "A2", "A4"]   # 空のA4は最後
     assert sel("案件作成日", False) == ["A2", "A1", "A3", "A4"]  # 降順でも空は最後
     assert sel("案件番号", False) == ["A4", "A3", "A2", "A1"]
-    assert sel("状態", True) == ["A1", "A2", "A4", "A3"]     # 受付 → 不備 → 書類到着 → 処理済
+    assert sel("状態", True) == ["A1", "A2", "A4", "A3"]     # 書類待ち → 不備 → 書類到着 → 処理済
 
 
 def test_export_csv(tmp_path):

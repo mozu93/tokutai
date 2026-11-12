@@ -9,7 +9,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sess
 
 from . import paths
 
-STATUS_RECEIVED = "受付"
+STATUS_RECEIVED = "書類待ち"
 STATUS_ARRIVED = "書類到着"
 STATUS_DONE = "処理済"
 STATUS_DEFECT = "不備（補正待ち）"
