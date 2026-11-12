@@ -133,6 +133,80 @@ def select_rows(cases: list[Case], alerts: dict[str, Alert], mode: str, query: s
     return rows
 
 
+# ---------- 元に戻す ----------
+UNDO_LIMIT = 10
+_UNDO_FIELDS = ("company", "received_date", "defect_date", "docs_date", "done_date", "note")
+
+
+def snapshot(c: Case) -> dict:
+    return {f: getattr(c, f) for f in _UNDO_FIELDS}
+
+
+class UndoStack:
+    """画面からの操作を、直前の数回（既定10回）まで戻すための履歴。アプリを閉じると消える。"""
+
+    def __init__(self, limit: int = UNDO_LIMIT) -> None:
+        self.limit = limit
+        self._items: list[tuple[str, dict[str, tuple[dict | None, dict | None]]]] = []
+
+    def push(self, label: str, changes: dict[str, tuple[dict | None, dict | None]]) -> None:
+        """changes: 案件番号 → (操作前, 操作後)。新規作成の操作前は None。"""
+        if changes:
+            self._items.append((label, changes))
+            del self._items[:-self.limit]
+
+    def pop(self):
+        return self._items.pop() if self._items else None
+
+    def peek_label(self) -> str | None:
+        return self._items[-1][0] if self._items else None
+
+    def __len__(self) -> int:
+        return len(self._items)
+
+
+def apply_undoable(s: Session, stack: UndoStack, label: str, nos: list[str], fn) -> int:
+    """案件に fn を適用して保存し、元に戻せるよう履歴へ残す。実際に変わった件数を返す。"""
+    changes = {}
+    for no in nos:
+        c = s.get(Case, no)
+        if c is None:
+            continue
+        before = snapshot(c)
+        fn(c)
+        after = snapshot(c)
+        if before != after:
+            changes[no] = (before, after)
+    s.commit()
+    stack.push(label, changes)
+    return len(changes)
+
+
+def undo(s: Session, stack: UndoStack) -> tuple[str, int, int] | None:
+    """直前の操作を戻す。（操作名, 戻した件数, 戻せなかった件数）を返す。履歴が空なら None。
+
+    操作のあとで、同じ案件がメール取り込みなどで変わっていたら、上書きしないよう戻さない。
+    """
+    item = stack.pop()
+    if item is None:
+        return None
+    label, changes = item
+    restored = skipped = 0
+    for no, (before, after) in changes.items():
+        c = s.get(Case, no)
+        if c is None or snapshot(c) != after:
+            skipped += 1
+            continue
+        if before is None:  # 追加した案件は、削除して戻す
+            s.delete(c)
+        else:
+            for k, v in before.items():
+                setattr(c, k, v)
+        restored += 1
+    s.commit()
+    return label, restored, skipped
+
+
 # ---------- まとめて処理 ----------
 BULK_ARRIVED, BULK_DEFECT, BULK_DONE = "arrived", "defect", "done"
 

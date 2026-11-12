@@ -6,7 +6,7 @@ import threading
 from datetime import date
 
 from PyQt6.QtCore import QDate, QItemSelectionModel, QObject, QRunnable, Qt, QThreadPool, QTimer, pyqtSignal
-from PyQt6.QtGui import QAction, QBrush, QColor, QIcon, QPainter, QPixmap
+from PyQt6.QtGui import QAction, QBrush, QColor, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
 from PyQt6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QDateEdit, QDialog, QDialogButtonBox,
     QFileDialog, QFormLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox, QPushButton,
@@ -149,6 +149,7 @@ class MainWindow(QMainWindow):
         self._last_error: list[str] = []
         self._totals = {"new": 0, "done": 0, "notified": 0}
         self._last_update = "-"
+        self.undo_stack = service.UndoStack()
 
         self._build_ui()
         self._build_tray()
@@ -214,6 +215,8 @@ class MainWindow(QMainWindow):
         self.btn_arrived = QPushButton("書類が届いた"); self.btn_arrived.clicked.connect(self.mark_arrived)
         self.btn_defect = QPushButton("不備を連絡した"); self.btn_defect.clicked.connect(self.mark_defect)
         self.btn_done = QPushButton("処理済にする"); self.btn_done.clicked.connect(self.toggle_done)
+        self.btn_undo = QPushButton("元に戻す"); self.btn_undo.clicked.connect(self.undo_last)
+        QShortcut(QKeySequence.StandardKey.Undo, self, activated=self.undo_last)
         self.btn_sync = QPushButton("今すぐ更新"); self.btn_sync.clicked.connect(self.sync)
         self.btn_more = QPushButton("その他")
         more = QMenu(self.btn_more)
@@ -232,6 +235,7 @@ class MainWindow(QMainWindow):
         for b in (self.btn_arrived, self.btn_defect, self.btn_done):
             btns.addWidget(b)
         btns.addStretch()
+        btns.addWidget(self.btn_undo)
         btns.addWidget(self.btn_sync)
         btns.addWidget(self.btn_more)
         v.addLayout(btns)
@@ -401,6 +405,9 @@ class MainWindow(QMainWindow):
         all_done = bool(sel) and statuses == {db.STATUS_DONE}
         self.btn_done.setEnabled(bool(sel))
         self.btn_done.setText(label("処理済を取り消す", len(sel)) if all_done else label("処理済にする", len(done)))
+        last = self.undo_stack.peek_label()
+        self.btn_undo.setEnabled(last is not None)
+        self.btn_undo.setToolTip(f"直前の操作「{last}」を元に戻す（Ctrl+Z）" if last else "元に戻せる操作はありません")
 
     def _popup_new_alerts(self, alerts: dict) -> None:
         keys = {(a.case_no, a.kind) for a in alerts.values()}
@@ -459,22 +466,28 @@ class MainWindow(QMainWindow):
         self.reload()
 
     # ---------- 操作 ----------
-    def _update_case(self, case_no: str, fn) -> None:
+    def _update_cases(self, label: str, nos: list[str], fn) -> None:
+        """案件を更新し、元に戻せるよう履歴に残す。"""
         with db.session() as s:
-            c = s.get(Case, case_no)
-            if c:
-                fn(c)
-                s.commit()
+            service.apply_undoable(s, self.undo_stack, label + (f"（{len(nos)}件）" if len(nos) > 1 else ""), nos, fn)
         self.reload()
 
-    def _update_cases(self, nos: list[str], fn) -> None:
+    def _update_case(self, label: str, case_no: str, fn) -> None:
+        self._update_cases(label, [case_no], fn)
+
+    def undo_last(self) -> None:
         with db.session() as s:
-            for no in nos:
-                c = s.get(Case, no)
-                if c:
-                    fn(c)
-            s.commit()
+            res = service.undo(s, self.undo_stack)
+        if res is None:
+            return
+        label, restored, skipped = res
         self.reload()
+        if skipped:
+            QMessageBox.warning(
+                self, "元に戻す",
+                f"「{label}」を{restored}件戻しました。\n{skipped}件は、その後に内容が変わっているため戻していません。")
+        else:
+            self.statusBar().showMessage(f"「{label}」を元に戻しました。", 6000)
 
     def _bulk(self, title: str, action: str, label: str, apply) -> None:
         """選んだ案件のうち対象のものに、同じ日付をまとめて記録する。日付は1回だけ聞く。"""
@@ -496,7 +509,7 @@ class MainWindow(QMainWindow):
             if QMessageBox.question(self, title, msg) != QMessageBox.StandardButton.Yes:
                 return
         d = dlg.value()
-        self._update_cases(targets, lambda c: apply(c, d))
+        self._update_cases(title, targets, lambda c: apply(c, d))
 
     def mark_arrived(self) -> None:
         def apply(c, d):
@@ -508,7 +521,7 @@ class MainWindow(QMainWindow):
         no = self._selected_no()
         if no and QMessageBox.question(self, "到着を取り消す", f"{no} の書類到着日を取り消しますか？") \
                 == QMessageBox.StandardButton.Yes:
-            self._update_case(no, lambda c: setattr(c, "docs_date", None))
+            self._update_case("書類到着の取り消し", no, lambda c: setattr(c, "docs_date", None))
 
     def mark_defect(self) -> None:
         self._bulk("不備を連絡した", service.BULK_DEFECT, "不備を相手に連絡した日", service.record_defect)
@@ -517,7 +530,7 @@ class MainWindow(QMainWindow):
         no = self._selected_no()
         if no and QMessageBox.question(self, "不備を取り消す", f"{no} の不備連絡日を取り消しますか？") \
                 == QMessageBox.StandardButton.Yes:
-            self._update_case(no, lambda c: setattr(c, "defect_date", None))
+            self._update_case("不備の取り消し", no, lambda c: setattr(c, "defect_date", None))
 
     def edit_dates(self) -> None:
         no = self._selected_no()
@@ -527,7 +540,7 @@ class MainWindow(QMainWindow):
             dlg = EditDatesDialog(s.get(Case, no), self)
         if dlg.exec():
             vals = dlg.values()
-            self._update_case(no, lambda c: [setattr(c, k, v) for k, v in vals.items()])
+            self._update_case("日付の修正", no, lambda c: [setattr(c, k, v) for k, v in vals.items()])
 
     def _table_menu(self, pos) -> None:
         item = self.table.itemAt(pos)
@@ -567,7 +580,7 @@ class MainWindow(QMainWindow):
             n = len(sel)
             text = f"{sel[0][0]} の処理済を取り消しますか？" if n == 1 else f"{n}件の処理済を取り消しますか？"
             if QMessageBox.question(self, "処理済を取り消す", text) == QMessageBox.StandardButton.Yes:
-                self._update_cases([no for no, _ in sel], lambda c: setattr(c, "done_date", None))
+                self._update_cases("処理済の取り消し", [no for no, _ in sel], lambda c: setattr(c, "done_date", None))
             return
         self._bulk("処理済にする", service.BULK_DONE, "処理済日", lambda c, d: setattr(c, "done_date", d))
 
@@ -583,9 +596,11 @@ class MainWindow(QMainWindow):
             if s.get(Case, no):
                 QMessageBox.warning(self, "案件を追加", "同じ案件番号がすでに登録されています。")
                 return
-            s.add(Case(case_no=no, company=dlg.company.text().strip(),
-                       received_date=dlg.recv.date().toPyDate(), note="手動追加"))
+            c = Case(case_no=no, company=dlg.company.text().strip(),
+                     received_date=dlg.recv.date().toPyDate(), note="手動追加")
+            s.add(c)
             s.commit()
+            self.undo_stack.push("案件の追加", {no: (None, service.snapshot(c))})
         self.reload()
 
     def _edit_text(self, title: str, label: str, attr: str, multiline: bool) -> None:
@@ -599,7 +614,7 @@ class MainWindow(QMainWindow):
         else:
             text, ok = QInputDialog.getText(self, title, label, text=cur)
         if ok:
-            self._update_case(no, lambda c: setattr(c, attr, text.strip()))
+            self._update_case(f"{label}の編集", no, lambda c: setattr(c, attr, text.strip()))
 
     def edit_note(self) -> None:
         self._edit_text("備考を編集", "備考", "note", True)

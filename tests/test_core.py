@@ -210,3 +210,49 @@ def test_bulk_targets():
     assert service.bulk_targets(sel, service.BULK_DEFECT) == (["A", "C"], 2)   # 不備中・処理済は対象外
     assert service.bulk_targets(sel, service.BULK_DONE) == (["A", "B", "C"], 1)
     assert service.bulk_targets([("D", db.STATUS_DONE)], service.BULK_ARRIVED) == ([], 1)
+
+
+def test_undo_multi_step(tmp_path):
+    db.init(f"sqlite:///{tmp_path / 'u.db'}")
+    stack = service.UndoStack()
+    with db.session() as s:
+        s.add(db.Case(case_no="U1", received_date=date(2026, 11, 2), docs_date=date(2026, 11, 5)))
+        s.add(db.Case(case_no="U2", received_date=date(2026, 11, 2)))
+        s.commit()
+        # 操作1: 不備を連絡（書類到着日が消え、備考が付く）
+        service.apply_undoable(s, stack, "不備連絡", ["U1"], lambda c: service.record_defect(c, date(2026, 11, 9)))
+        # 操作2: 2件まとめて処理済
+        service.apply_undoable(s, stack, "処理済", ["U1", "U2"], lambda c: setattr(c, "done_date", date(2026, 11, 10)))
+        # 変化のない操作は履歴に残さない
+        assert service.apply_undoable(s, stack, "何もしない", ["U2"], lambda c: None) == 0
+        assert len(stack) == 2 and stack.peek_label() == "処理済"
+
+        assert service.undo(s, stack) == ("処理済", 2, 0)
+        u1 = s.get(db.Case, "U1")
+        assert u1.done_date is None and u1.defect_date == date(2026, 11, 9)
+        assert service.undo(s, stack) == ("不備連絡", 1, 0)
+        s.refresh(u1)
+        assert u1.defect_date is None and u1.docs_date == date(2026, 11, 5) and u1.note == ""  # 元通り
+        assert service.undo(s, stack) is None
+
+
+def test_undo_skips_changed_and_removes_created(tmp_path):
+    db.init(f"sqlite:///{tmp_path / 'u2.db'}")
+    stack = service.UndoStack(limit=2)
+    with db.session() as s:
+        s.add(db.Case(case_no="V1", received_date=date(2026, 11, 2)))
+        s.commit()
+        service.apply_undoable(s, stack, "到着", ["V1"], lambda c: setattr(c, "docs_date", date(2026, 11, 5)))
+        s.get(db.Case, "V1").done_date = date(2026, 11, 6)  # その後にメール取り込みなどで変わった
+        s.commit()
+        assert service.undo(s, stack) == ("到着", 0, 1)     # 上書きせず、戻さない
+        assert s.get(db.Case, "V1").docs_date == date(2026, 11, 5)
+        # 追加した案件は、削除して戻す
+        c = db.Case(case_no="V2", received_date=date(2026, 11, 2))
+        s.add(c); s.commit()
+        stack.push("追加", {"V2": (None, service.snapshot(c))})
+        assert service.undo(s, stack) == ("追加", 1, 0) and s.get(db.Case, "V2") is None
+    # 履歴は上限まで
+    for i in range(5):
+        stack.push(str(i), {"X": ({}, {"a": i})})
+    assert len(stack) == 2
