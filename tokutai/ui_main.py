@@ -5,9 +5,9 @@ import logging
 import threading
 from datetime import date
 
-from PyQt6.QtCore import QDate, QItemSelectionModel, QObject, QRunnable, Qt, QThreadPool, QTimer, pyqtSignal
-from PyQt6.QtGui import QAction, QBrush, QColor, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QDate, QItemSelectionModel, QObject, QRunnable, Qt, QThreadPool, QTimer, Signal
+from PySide6.QtGui import QAction, QBrush, QColor, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
+from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QDateEdit, QDialog, QDialogButtonBox,
     QFileDialog, QFormLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox, QPushButton,
     QSystemTrayIcon, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
@@ -42,7 +42,7 @@ def _icon(color: str) -> QIcon:
 
 
 class _Signals(QObject):
-    done = pyqtSignal(object)
+    done = Signal(object)
 
 
 class _SyncTask(QRunnable):

@@ -25,6 +25,8 @@ Outlook に届く案件メールから受付簿を自動で作り、期限を過
 
 ## 起動
 
+画面には PySide6（Qt for Python、LGPLv3）を使う。
+
 ```
 pip install -r requirements.txt
 python main.py              # 画面を表示して起動
@@ -84,5 +86,7 @@ Microsoft へのサインイン、メールの実送信、Windows のスター�
 
 ```
 pip install pyinstaller
-pyinstaller --noconsole --onefile --name TokutaiApp --add-data "tokutai/data;tokutai/data" main.py
+pyinstaller --noconsole --onedir --name TokutaiApp --add-data "tokutai/data;tokutai/data" main.py
 ```
+
+exe を他の人に配るときは、PySide6（LGPLv3）の条件に合わせて、ライセンス文を同梱し、Qt のライブラリを利用者が差し替えられる形で配る。そのため、1ファイルにまとめる `--onefile` ではなく、フォルダ形式の `--onedir` を使い、`dist\TokutaiApp` フォルダごと配る。条件の細部は、配布の前に確認すること。

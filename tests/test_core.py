@@ -20,8 +20,8 @@ def norm():
 
 
 @pytest.mark.parametrize("raw,expected", [
-    ("ｽｽﾞｶﾝ (ｶ", "スズカン株式会社"),
-    ("ｶ)ｽｽﾞｶﾝ", "株式会社スズカン"),
+    ("ｻﾝﾌﾟﾙ (ｶ", "サンプル株式会社"),
+    ("ｶ)ｻﾝﾌﾟﾙ", "株式会社サンプル"),
     ("ﾏﾙﾏﾙ(ｶ)ｴｲｷﾞﾖｳ", "マルマル株式会社エイギヨウ"),
     ("ｱｲｳ(ﾕ", "アイウ有限会社"),
     ("ｼﾞｮｳﾎﾞｳ(ｼﾎｳ", "ジョウボウ司法書士法人"),
@@ -39,10 +39,10 @@ def test_company_notes(norm):
 
 def test_classify_and_parse():
     assert classify("特退金 脱退案件作成のお知らせ", "特退金脱退案件作成", "特退金制度申し込み") == KIND_CREATE
-    assert classify("アクサ生命：特退金制度申し込み", "特退金脱退案件作成", "特退金制度申し込み") == KIND_DONE
+    assert classify("〇〇生命：特退金制度申し込み", "特退金脱退案件作成", "特退金制度申し込み") == KIND_DONE
     assert classify("関係ないメール", "特退金脱退案件作成", "特退金制度申し込み") is None
-    p = parse_body(KIND_CREATE, "案件番号：T261110500002789\n上記書類を ｽｽﾞｶﾝ (ｶ 様へ送付")
-    assert p.case_no == "T261110500002789" and p.company_raw == "ｽｽﾞｶﾝ (ｶ"
+    p = parse_body(KIND_CREATE, "案件番号：T900000000000001\n上記書類を ｻﾝﾌﾟﾙ (ｶ 様へ送付")
+    assert p.case_no == "T900000000000001" and p.company_raw == "ｻﾝﾌﾟﾙ (ｶ"
     assert parse_body(KIND_DONE, "本文に番号なし") is None
 
 
@@ -76,17 +76,17 @@ def test_sync_flow(tmp_path, monkeypatch, norm):
     db.init(f"sqlite:///{tmp_path / 't.db'}")
     st = Settings(folder_name="x", manager_emails=["a@example.com", "b@example.com"])
     msgs = [
-        mail("m1", "特退金脱退案件作成", "案件番号：T1001\n上記書類を ｽｽﾞｶﾝ (ｶ 様へ", date(2026, 11, 2)),
+        mail("m1", "特退金脱退案件作成", "案件番号：T1001\n上記書類を ｻﾝﾌﾟﾙ (ｶ 様へ", date(2026, 11, 2)),
         mail("m2", "特退金脱退案件作成", "案件番号：T1002\n上記書類を ﾃｽﾄ(ﾕ 様へ", date(2026, 11, 4)),
-        mail("m3", "アクサ生命：特退金制度申し込み", "案件番号：T1002", date(2026, 11, 6)),
-        mail("m4", "アクサ生命：特退金制度申し込み", "案件番号：T9999", date(2026, 11, 6)),
+        mail("m3", "〇〇生命：特退金制度申し込み", "案件番号：T1002", date(2026, 11, 6)),
+        mail("m4", "〇〇生命：特退金制度申し込み", "案件番号：T9999", date(2026, 11, 6)),
     ]
     client = FakeClient(msgs)
     r = service.run_sync(st, client, norm, today=date(2026, 11, 12))
     assert (r.new_cases, r.done_cases, r.errors) == (2, 2, [])
     with db.session() as s:
         c1, c2, c9 = s.get(db.Case, "T1001"), s.get(db.Case, "T1002"), s.get(db.Case, "T9999")
-        assert c1.company == "スズカン株式会社" and c1.status == "書類待ち"
+        assert c1.company == "サンプル株式会社" and c1.status == "書類待ち"
         assert c2.status == "処理済" and c9.note == service.NOTE_UNSEEN
         assert service.alert_kind(c1, date(2026, 11, 12), st) == service.ALERT_DOCS  # 7営業日
         assert service.alert_kind(c1, date(2026, 11, 10), st) is None

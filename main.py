@@ -5,8 +5,8 @@ import logging
 import sys
 from logging.handlers import RotatingFileHandler
 
-from PyQt6.QtNetwork import QLocalServer, QLocalSocket
-from PyQt6.QtWidgets import QApplication
+from PySide6.QtNetwork import QLocalServer, QLocalSocket
+from PySide6.QtWidgets import QApplication
 
 from tokutai import autostart, db, paths, settings as settings_mod
 from tokutai.ui_main import MainWindow
