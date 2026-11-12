@@ -90,3 +90,7 @@ pyinstaller --noconsole --onedir --name TokutaiApp --add-data "tokutai/data;toku
 ```
 
 exe を他の人に配るときは、PySide6（LGPLv3）の条件に合わせて、ライセンス文を同梱し、Qt のライブラリを利用者が差し替えられる形で配る。そのため、1ファイルにまとめる `--onefile` ではなく、フォルダ形式の `--onedir` を使い、`dist\TokutaiApp` フォルダごと配る。条件の細部は、配布の前に確認すること。
+
+## ライセンス
+
+MIT License（`LICENSE` を参照）。画面に使っている PySide6 は LGPLv3 で、別のライセンスです。
